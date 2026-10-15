@@ -41,6 +41,8 @@ public class MainActivity extends Activity {
     private double gainDb = 0;
     private TextView gainText;
     private SeekBar gainBar;
+    private boolean lowLat = false;
+    private Button modeBtn;
 
     @Override
     protected void onCreate(Bundle b) {
@@ -68,6 +70,15 @@ public class MainActivity extends Activity {
         ra.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         srSpinner.setAdapter(ra);
         row.addView(srSpinner, new LinearLayout.LayoutParams(dp(90), LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        modeBtn = new Button(this);
+        modeBtn.setText("標準");
+        modeBtn.setOnClickListener(v -> {
+            if (engine != null) return;          // 止めてから切り替える
+            lowLat = !lowLat;
+            modeBtn.setText(lowLat ? "低遅延" : "標準");
+        });
+        row.addView(modeBtn, new LinearLayout.LayoutParams(dp(100), LinearLayout.LayoutParams.WRAP_CONTENT));
 
         startBtn = new Button(this);
         startBtn.setText("START");
@@ -206,15 +217,20 @@ public class MainActivity extends Activity {
         }
         int sr = RATES[Math.max(0, srSpinner.getSelectedItemPosition())];
         Engine e = new Engine();
-        String err = e.start(selectedDevice(), sr);
+        String err = lowLat ? e.startNative(selectedDevice(), sr) : e.start(selectedDevice(), sr);
         if (err != null) { info.setText("開始できませんでした: " + err); return; }
         e.gain = Math.pow(10, gainDb / 20);
         engine = e;
         startBtn.setText("STOP");
         AudioDeviceInfo routed = e.routedDevice();
+        if (e.isNative()) {
+            routed = null;
+            for (AudioDeviceInfo dd : devices) if (dd.getId() == e.nativeDeviceId()) routed = dd;
+        }
         infoHead = "受け取り: " + e.channels() + "ch / " + e.sampleRate() + "Hz / " + e.formatName() + " / " + e.sourceName() +
                 "\n実際の入力: " + (routed == null ? "?" : typeName(routed.getType()) + " " + routed.getProductName()) +
-                " / バッファ " + String.format("%.1f", e.bufferMs()) + "ms";
+                " / バッファ " + String.format("%.1f", e.bufferMs()) + "ms" +
+                (e.isNative() ? "\n" + e.nativeInfo() : "");
         info.setText(infoHead);
     }
 

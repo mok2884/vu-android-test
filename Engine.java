@@ -31,6 +31,48 @@ public class Engine {
     private volatile boolean running;
     private boolean isFloat;
     private int ch, sr, bufFrames, source;
+    private boolean nat;          // true = 低遅延モード (AAudio)
+    private int natBurst, natShare, natPerf, natDev;
+
+    public boolean isNative() { return nat; }
+    public int nativeDeviceId() { return natDev; }
+    public String nativeInfo() {
+        return (natShare == 0 ? "専有" : "共有") + " / " + (natPerf == 12 ? "低遅延" : "通常(" + natPerf + ")") +
+               " / 1回 " + String.format("%.1f", natBurst * 1000.0 / sr) + "ms";
+    }
+
+    // 低遅延モードで開始。うまくいけば null
+    public String startNative(AudioDeviceInfo dev, int wantSr) {
+        if (!NativeAudio.OK) return "この機種では使えません (Android 8 以上が必要)";
+        int id = dev == null ? 0 : dev.getId();
+        int r = -1;
+        // 専有→共有、ステレオ→モノラルの順に試す
+        outer:
+        for (boolean ex : new boolean[]{true, false}) {
+            for (int c : new int[]{2, 1}) {
+                r = NativeAudio.open(id, wantSr, c, MediaRecorder.AudioSource.UNPROCESSED, ex);
+                if (r == 0) break outer;
+                r = NativeAudio.open(id, wantSr, c, MediaRecorder.AudioSource.VOICE_RECOGNITION, ex);
+                if (r == 0) break outer;
+            }
+        }
+        if (r != 0) return "AAudio エラー " + r;
+        nat = true;
+        isFloat = true;
+        ch = NativeAudio.info(0);
+        sr = NativeAudio.info(1);
+        natShare = NativeAudio.info(2);
+        natPerf = NativeAudio.info(3);
+        natBurst = Math.max(16, NativeAudio.info(4));
+        bufFrames = NativeAudio.info(5);
+        natDev = NativeAudio.info(6);
+        source = -1;
+        running = true;
+        thread = new Thread(this::loop, "audio");
+        thread.setPriority(Thread.MAX_PRIORITY);
+        thread.start();
+        return null;
+    }
 
     public int channels() { return ch; }
     public int sampleRate() { return sr; }
@@ -41,6 +83,7 @@ public class Engine {
             case MediaRecorder.AudioSource.UNPROCESSED: return "加工なし";
             case MediaRecorder.AudioSource.VOICE_RECOGNITION: return "音声認識用";
             case MediaRecorder.AudioSource.MIC: return "通常マイク";
+            case -1: return "低遅延モード";
             default: return "src" + source;
         }
     }
@@ -92,10 +135,11 @@ public class Engine {
         running = false;
         try { if (thread != null) thread.join(500); } catch (InterruptedException ignored) {}
         if (rec != null) { try { rec.stop(); } catch (Exception ignored) {} rec.release(); rec = null; }
+        if (nat) { NativeAudio.close(); nat = false; }
     }
 
     private void loop() {
-        final int chunk = Math.max(64, sr / 400);          // 1回に読む量 (約2.5ms)
+        final int chunk = nat ? natBurst : Math.max(64, sr / 400);   // 1回に読む量
         final float[] fb = new float[chunk * ch];
         final short[] sb = new short[chunk * ch];
         final int blk = Math.max(1, Math.round(sr / 1000f));   // 1ms ごとに針を進める
@@ -105,12 +149,20 @@ public class Engine {
         int n = 0, reads = 0;
         long total = 0;
         AudioTimestamp ts = new AudioTimestamp();
+        long[] nts = new long[2];
 
         while (running) {
-            int got = isFloat ? rec.read(fb, 0, fb.length, AudioRecord.READ_BLOCKING)
-                              : rec.read(sb, 0, sb.length);
-            if (got <= 0) { if (got < 0) overruns++; continue; }
-            int frames = got / ch;
+            int frames;
+            if (nat) {
+                frames = NativeAudio.read(fb, chunk);
+                if (frames < 0) { overruns++; continue; }
+                if (frames == 0) continue;
+            } else {
+                int got = isFloat ? rec.read(fb, 0, fb.length, AudioRecord.READ_BLOCKING)
+                                  : rec.read(sb, 0, sb.length);
+                if (got <= 0) { if (got < 0) overruns++; continue; }
+                frames = got / ch;
+            }
             final double g = gain;
             for (int i = 0; i < frames; i++) {
                 double l, r;
@@ -132,9 +184,15 @@ public class Engine {
             total += frames;
 
             // 入力の遅れの推定: 最後に受け取った音が、何ミリ秒前に入ってきたものか
-            if (++reads % 20 == 0 && rec.getTimestamp(ts, AudioTimestamp.TIMEBASE_MONOTONIC) == AudioRecord.SUCCESS) {
-                long capNs = ts.nanoTime + (long) ((total - ts.framePosition) * 1e9 / sr);
-                latencyMs = (System.nanoTime() - capNs) / 1e6;
+            if (++reads % 20 == 0) {
+                long pos = 0, tns = 0;
+                boolean ok;
+                if (nat) { ok = NativeAudio.timestamp(nts); pos = nts[0]; tns = nts[1]; overruns = NativeAudio.info(7); }
+                else { ok = rec.getTimestamp(ts, AudioTimestamp.TIMEBASE_MONOTONIC) == AudioRecord.SUCCESS; pos = ts.framePosition; tns = ts.nanoTime; }
+                if (ok) {
+                    long capNs = tns + (long) ((total - pos) * 1e9 / sr);
+                    latencyMs = (System.nanoTime() - capNs) / 1e6;
+                }
             }
         }
     }
