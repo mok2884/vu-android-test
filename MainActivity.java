@@ -19,6 +19,7 @@ import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.LinearLayout;
+import android.widget.SeekBar;
 import android.widget.Spinner;
 import android.widget.TextView;
 
@@ -37,6 +38,9 @@ public class MainActivity extends Activity {
     private final int[] RATES = {48000, 44100, 96000};
     private Engine engine;
     private String infoHead = "";
+    private double gainDb = 0;
+    private TextView gainText;
+    private SeekBar gainBar;
 
     @Override
     protected void onCreate(Bundle b) {
@@ -71,6 +75,30 @@ public class MainActivity extends Activity {
         row.addView(startBtn, new LinearLayout.LayoutParams(dp(110), LinearLayout.LayoutParams.WRAP_CONTENT));
         root.addView(row);
 
+        // 入力レベル調整: -20〜+20dB、0.5dB刻み
+        LinearLayout grow = new LinearLayout(this);
+        grow.setOrientation(LinearLayout.HORIZONTAL);
+        grow.setGravity(Gravity.CENTER_VERTICAL);
+        gainText = new TextView(this);
+        gainText.setTextColor(Color.rgb(220, 220, 220));
+        gainText.setTextSize(14);
+        grow.addView(gainText, new LinearLayout.LayoutParams(dp(130), LinearLayout.LayoutParams.WRAP_CONTENT));
+        gainBar = new SeekBar(this);
+        gainBar.setMax(80);
+        gainBar.setProgress(40);
+        gainBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar sb, int v, boolean user) { setGain((v - 40) / 2.0); }
+            @Override public void onStartTrackingTouch(SeekBar sb) {}
+            @Override public void onStopTrackingTouch(SeekBar sb) {}
+        });
+        grow.addView(gainBar, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        Button zero = new Button(this);
+        zero.setText("0dB");
+        zero.setOnClickListener(v -> gainBar.setProgress(40));
+        grow.addView(zero, new LinearLayout.LayoutParams(dp(80), LinearLayout.LayoutParams.WRAP_CONTENT));
+        root.addView(grow);
+        setGain(0);
+
         info = new TextView(this);
         info.setTextColor(Color.rgb(170, 170, 170));
         info.setTextSize(12);
@@ -98,6 +126,12 @@ public class MainActivity extends Activity {
         }
 
         Choreographer.getInstance().postFrameCallback(frame);
+    }
+
+    private void setGain(double db) {
+        gainDb = db;
+        gainText.setText("IN " + (db >= 0 ? "+" : "") + String.format("%.1f", db) + " dB");
+        if (engine != null) engine.gain = Math.pow(10, db / 20);
     }
 
     private int dp(int v) { return Math.round(v * getResources().getDisplayMetrics().density); }
@@ -174,6 +208,7 @@ public class MainActivity extends Activity {
         Engine e = new Engine();
         String err = e.start(selectedDevice(), sr);
         if (err != null) { info.setText("開始できませんでした: " + err); return; }
+        e.gain = Math.pow(10, gainDb / 20);
         engine = e;
         startBtn.setText("STOP");
         AudioDeviceInfo routed = e.routedDevice();

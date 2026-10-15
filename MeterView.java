@@ -4,14 +4,21 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.graphics.RectF;
 import android.view.View;
 
-// L/R の VU バー(太い) とピークバー(細い) を描く
+// L/R の VU 針 (ブラウザ版と同じ目盛りと角度) と、その下にピークの細いバーを描く
 public class MeterView extends View {
 
     // 1kHz -20dBFS (振幅0.1) の絶対値の平均 = 0VU
     private static final double VU_CAL = 20 * Math.log10(1 / (0.1 * 2 / Math.PI));
-    private static final double VU_MIN = -20, VU_MAX = 3, PK_MIN = -60, PK_MAX = 0;
+    private static final double PK_MIN = -60, PK_MAX = 0;
+
+    // ブラウザ版と同じ: 窓 280x145、軸は窓の上から181、左端133度〜右端47度
+    private static final float FW = 280, FH = 145, CY = 181, ARC_R = 140, START_DEG = 133, END_DEG = 47;
+    private static final double[][] SCALE = {
+            {-20, 0.030}, {-10, 0.135}, {-7, 0.222}, {-5, 0.303}, {-3, 0.418}, {-2, 0.489},
+            {-1, 0.567}, {0, 0.654}, {1, 0.765}, {2, 0.888}, {3, 1.000}};
 
     private double vuL, vuR, pkL, pkR;
     private int ch;
@@ -28,72 +35,113 @@ public class MeterView extends View {
         invalidate();
     }
 
-    private static double vuDb(double a) { return a > 1e-7 ? 20 * Math.log10(a) + VU_CAL : -99; }
-    private static double pkDb(double a) { return a > 1e-7 ? 20 * Math.log10(a) : -99; }
+    // 電圧(0VU=1) → 振れ幅(0〜1)。目盛りの間は直線でつなぐ
+    private static double frac(double v) {
+        if (!(v > 0)) return 0;
+        double pa = 0, pf = 0;
+        for (double[] m : SCALE) {
+            double a = Math.pow(10, m[0] / 20);
+            if (v <= a) return pf + (m[1] - pf) * (v - pa) / (a - pa);
+            pa = a; pf = m[1];
+        }
+        return 1;
+    }
+
+    private static double angleOf(double amp) {   // amp: 絶対値の平均
+        double v = amp * Math.pow(10, VU_CAL / 20);
+        return START_DEG + frac(v) * (END_DEG - START_DEG);
+    }
 
     @Override
     protected void onDraw(Canvas c) {
-        float w = getWidth(), hgt = getHeight();
-        float left = 34 * d, right = w - 74 * d, bw = right - left;
-        float rowH = Math.min(hgt / 2.4f, 120 * d);
-        p.setTextSize(13 * d);
-
-        drawRow(c, "L", vuL, pkL, 10 * d, rowH, left, bw, w);
-        drawRow(c, "R", vuR, pkR, 10 * d + rowH * 1.15f, rowH, left, bw, w);
-
-        p.setColor(Color.rgb(120, 120, 120));
-        p.setTextAlign(Paint.Align.LEFT);
-        p.setTextSize(12 * d);
-        String note = ch == 1 ? "1chで受け取っています (Rは Lと同じものを表示)" :
-                      ch >= 2 ? "太いバー: VU (-20〜+3)  細いバー: ピーク dBFS (-60〜0)" : "";
-        c.drawText(note, left, 10 * d + rowH * 2.3f, p);
+        float w = getWidth(), h = getHeight();
+        boolean side = w > h * 1.2f;               // 横長なら左右に、縦長なら上下に並べる
+        float boxW = side ? w / 2 : w, boxH = side ? h : h / 2;
+        float s = Math.min((boxW - 12 * d) / FW, (boxH - 40 * d) / FH);   // 窓の大きさ
+        for (int i = 0; i < 2; i++) {
+            float ox = side ? i * boxW : 0, oy = side ? 0 : i * boxH;
+            float fx = ox + (boxW - FW * s) / 2, fy = oy + 6 * d;
+            drawMeter(c, i == 0 ? "L" : "R", i == 0 ? vuL : vuR, i == 0 ? pkL : pkR, fx, fy, s);
+        }
+        if (ch == 1) {
+            p.setColor(Color.rgb(140, 140, 140));
+            p.setTextSize(12 * d);
+            p.setTextAlign(Paint.Align.LEFT);
+            c.drawText("1chで受け取っています (Rは Lと同じものを表示)", 8 * d, h - 4 * d, p);
+        }
     }
 
-    private void drawRow(Canvas c, String name, double vu, double pk, float top, float rowH,
-                         float left, float bw, float w) {
-        float vuH = rowH * 0.5f, pkH = rowH * 0.16f, gap = rowH * 0.08f;
+    private void drawMeter(Canvas c, String name, double vu, double pk, float fx, float fy, float s) {
+        float cx = fx + FW / 2 * s, cy = fy + CY * s;
 
-        p.setTextAlign(Paint.Align.LEFT);
-        p.setColor(Color.rgb(230, 230, 230));
-        p.setTextSize(18 * d);
-        c.drawText(name, 8 * d, top + vuH * 0.7f, p);
+        c.save();
+        c.clipRect(fx, fy, fx + FW * s, fy + FH * s);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.rgb(238, 226, 190));
+        c.drawRect(fx, fy, fx + FW * s, fy + FH * s, p);
 
-        // VU
-        p.setColor(Color.rgb(40, 40, 40));
-        c.drawRect(left, top, left + bw, top + vuH, p);
-        double db = vuDb(vu);
-        float x = left + (float) ((Math.max(VU_MIN, Math.min(VU_MAX, db)) - VU_MIN) / (VU_MAX - VU_MIN)) * bw;
-        float x0 = left + (float) ((0 - VU_MIN) / (VU_MAX - VU_MIN)) * bw;
-        p.setColor(Color.rgb(60, 200, 90));
-        c.drawRect(left, top, Math.min(x, x0), top + vuH, p);
-        if (x > x0) { p.setColor(Color.rgb(230, 70, 60)); c.drawRect(x0, top, x, top + vuH, p); }
+        // 目盛りの弧 (0VUより上は赤)
+        RectF arc = new RectF(cx - ARC_R * s, cy - ARC_R * s, cx + ARC_R * s, cy + ARC_R * s);
+        float a0 = (float) angleOf(Math.pow(10, -VU_CAL / 20));          // 0VU の角度
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(2 * s);
+        p.setColor(Color.rgb(30, 30, 30));
+        c.drawArc(arc, -START_DEG, START_DEG - a0, false, p);
+        p.setColor(Color.rgb(200, 40, 30));
+        p.setStrokeWidth(5 * s);
+        c.drawArc(arc, -a0, a0 - END_DEG, false, p);
 
-        // 目盛り
-        p.setTextSize(10 * d);
+        // 目盛りと数字
         p.setTextAlign(Paint.Align.CENTER);
-        for (int v : new int[]{-20, -10, -7, -5, -3, -2, -1, 0, 1, 2, 3}) {
-            float tx = left + (float) ((v - VU_MIN) / (VU_MAX - VU_MIN)) * bw;
-            p.setColor(v == 0 ? Color.WHITE : Color.rgb(140, 140, 140));
-            c.drawRect(tx - 0.5f * d, top + vuH, tx + 0.5f * d, top + vuH + 4 * d, p);
-            if (v != -2 && v != 2) c.drawText((v > 0 ? "+" : "") + v, tx, top + vuH + 14 * d, p);
+        p.setTextSize(13 * s);
+        for (double[] m : SCALE) {
+            double deg = START_DEG + m[1] * (END_DEG - START_DEG), r = Math.toRadians(deg);
+            float cs = (float) Math.cos(r), sn = (float) Math.sin(r);
+            int col = m[0] >= 0 ? Color.rgb(200, 40, 30) : Color.rgb(30, 30, 30);
+            p.setColor(col);
+            p.setStyle(Paint.Style.STROKE);
+            p.setStrokeWidth(2.2f * s);
+            float len = (m[0] >= 0 ? 13 : 10) * s;
+            c.drawLine(cx + cs * ARC_R * s, cy - sn * ARC_R * s,
+                       cx + cs * (ARC_R * s + len), cy - sn * (ARC_R * s + len), p);
+            p.setStyle(Paint.Style.FILL);
+            float tr = ARC_R * s + 26 * s;
+            c.drawText(String.valueOf((int) Math.abs(m[0])), cx + cs * tr, cy - sn * tr + 5 * s, p);
         }
+        p.setColor(Color.rgb(30, 30, 30));
+        p.setTextSize(16 * s);
+        p.setTextAlign(Paint.Align.LEFT);
+        c.drawText(name, fx + 10 * s, fy + FH * s - 10 * s, p);
+        p.setTextAlign(Paint.Align.RIGHT);
+        c.drawText("VU", fx + FW * s - 10 * s, fy + FH * s - 10 * s, p);
+
+        // 針
+        double r = Math.toRadians(angleOf(vu));
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(2f * s);
+        p.setColor(Color.rgb(20, 20, 20));
+        float nl = (ARC_R + 10) * s;
+        c.drawLine(cx, cy, cx + (float) Math.cos(r) * nl, cy - (float) Math.sin(r) * nl, p);
+        c.restore();
+
+        // 窓の枠
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(1 * d);
+        p.setColor(Color.rgb(90, 90, 90));
+        c.drawRect(fx, fy, fx + FW * s, fy + FH * s, p);
 
         // ピーク
-        float pt = top + vuH + 18 * d + gap;
+        p.setStyle(Paint.Style.FILL);
+        float pt = fy + FH * s + 8 * d, ph = 6 * d, bw = FW * s - 50 * d;
         p.setColor(Color.rgb(40, 40, 40));
-        c.drawRect(left, pt, left + bw, pt + pkH, p);
-        double pdb = pkDb(pk);
-        float px = left + (float) ((Math.max(PK_MIN, Math.min(PK_MAX, pdb)) - PK_MIN) / (PK_MAX - PK_MIN)) * bw;
+        c.drawRect(fx, pt, fx + bw, pt + ph, p);
+        double pdb = pk > 1e-7 ? 20 * Math.log10(pk) : -99;
+        float px = fx + (float) ((Math.max(PK_MIN, Math.min(PK_MAX, pdb)) - PK_MIN) / (PK_MAX - PK_MIN)) * bw;
         p.setColor(pdb > -1 ? Color.rgb(230, 70, 60) : Color.rgb(200, 200, 90));
-        c.drawRect(left, pt, px, pt + pkH, p);
-
-        // 数字
+        c.drawRect(fx, pt, px, pt + ph, p);
+        p.setColor(Color.rgb(170, 170, 170));
+        p.setTextSize(11 * d);
         p.setTextAlign(Paint.Align.RIGHT);
-        p.setTextSize(16 * d);
-        p.setColor(Color.rgb(230, 230, 230));
-        c.drawText(db < -90 ? "--" : String.format("%+.1f", db), w - 6 * d, top + vuH * 0.75f, p);
-        p.setTextSize(12 * d);
-        p.setColor(Color.rgb(160, 160, 160));
-        c.drawText(pdb < -90 ? "--" : String.format("%.1f", pdb), w - 6 * d, pt + pkH, p);
+        c.drawText(pdb < -90 ? "PK --" : String.format("PK %.1f", pdb), fx + FW * s, pt + ph + 1 * d, p);
     }
 }

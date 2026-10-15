@@ -24,6 +24,7 @@ public class Engine {
     public volatile double vuL, vuR, pkL, pkR;   // vu: 絶対値の平均(針の位置) / pk: ピーク(0〜1)
     public volatile double latencyMs = -1;
     public volatile int overruns = 0;
+    public volatile double gain = 1;              // 入力レベル調整 (倍率)
 
     private AudioRecord rec;
     private Thread thread;
@@ -110,10 +111,12 @@ public class Engine {
                               : rec.read(sb, 0, sb.length);
             if (got <= 0) { if (got < 0) overruns++; continue; }
             int frames = got / ch;
+            final double g = gain;
             for (int i = 0; i < frames; i++) {
                 double l, r;
                 if (isFloat) { l = fb[i * ch]; r = ch > 1 ? fb[i * ch + 1] : l; }
                 else { l = sb[i * ch] / 32768.0; r = ch > 1 ? sb[i * ch + 1] / 32768.0 : l; }
+                l *= g; r *= g;
                 double al = Math.abs(l), ar = Math.abs(r);
                 sL += al; sR += ar;
                 if (al > mL) mL = al;
