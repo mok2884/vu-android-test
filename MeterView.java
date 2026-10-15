@@ -31,8 +31,13 @@ public class MeterView extends View {
     }
 
     public void set(double vuL, double vuR, double pkL, double pkR, int ch) {
-        this.vuL = vuL; this.vuR = vuR; this.pkL = pkL; this.pkR = pkR; this.ch = ch;
+        setValues(vuL, vuR, pkL, pkR, ch);
         invalidate();
+    }
+
+    // 値だけ入れる (直接描く方式から使う)
+    public void setValues(double vuL, double vuR, double pkL, double pkR, int ch) {
+        this.vuL = vuL; this.vuR = vuR; this.pkL = pkL; this.pkR = pkR; this.ch = ch;
     }
 
     // 電圧(0VU=1) → 振れ幅(0〜1)。目盛りの間は直線でつなぐ
@@ -53,8 +58,9 @@ public class MeterView extends View {
     }
 
     @Override
-    protected void onDraw(Canvas c) {
-        float w = getWidth(), h = getHeight();
+    protected void onDraw(Canvas c) { c.drawColor(Color.rgb(17, 17, 17)); drawTo(c, getWidth(), getHeight()); }
+
+    public void drawTo(Canvas c, float w, float h) {
         boolean side = w > h * 1.2f;               // 横長なら左右に、縦長なら上下に並べる
         float boxW = side ? w / 2 : w, boxH = side ? h : h / 2;
         float s = Math.min((boxW - 12 * d) / FW, (boxH - 40 * d) / FH);   // 窓の大きさ

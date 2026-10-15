@@ -15,6 +15,8 @@ import android.view.Choreographer;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
+import android.view.Display;
+import android.widget.FrameLayout;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
@@ -43,11 +45,29 @@ public class MainActivity extends Activity {
     private SeekBar gainBar;
     private boolean lowLat = false;
     private Button modeBtn;
+    private MeterSurface surf;
+    private boolean direct = false;
+    private Button drawBtn;
+    private int viewFrames = 0;
+    private long viewFpsT = 0;
+    private double viewFps = 0;
 
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        // 画面の書き換えがいちばん速いモードを選ぶ (同じ解像度の中で)
+        try {
+            Display dsp = getWindowManager().getDefaultDisplay();
+            Display.Mode cur = dsp.getMode(), best = cur;
+            for (Display.Mode m : dsp.getSupportedModes()) {
+                if (m.getPhysicalWidth() == cur.getPhysicalWidth() && m.getPhysicalHeight() == cur.getPhysicalHeight()
+                        && m.getRefreshRate() > best.getRefreshRate()) best = m;
+            }
+            WindowManager.LayoutParams lp = getWindow().getAttributes();
+            lp.preferredDisplayModeId = best.getModeId();
+            getWindow().setAttributes(lp);
+        } catch (Exception ignored) {}
         am = (AudioManager) getSystemService(AUDIO_SERVICE);
 
         LinearLayout root = new LinearLayout(this);
@@ -107,6 +127,10 @@ public class MainActivity extends Activity {
         zero.setText("0dB");
         zero.setOnClickListener(v -> gainBar.setProgress(40));
         grow.addView(zero, new LinearLayout.LayoutParams(dp(80), LinearLayout.LayoutParams.WRAP_CONTENT));
+        drawBtn = new Button(this);
+        drawBtn.setText("描画:通常");
+        drawBtn.setOnClickListener(v -> setDirect(!direct));
+        grow.addView(drawBtn, new LinearLayout.LayoutParams(dp(120), LinearLayout.LayoutParams.WRAP_CONTENT));
         root.addView(grow);
         setGain(0);
 
@@ -116,8 +140,12 @@ public class MainActivity extends Activity {
         info.setPadding(0, dp(6), 0, dp(6));
         root.addView(info);
 
+        FrameLayout box = new FrameLayout(this);
         meter = new MeterView(this);
-        root.addView(meter, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
+        surf = new MeterSurface(this, () -> engine);
+        box.addView(surf, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        box.addView(meter, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        root.addView(box, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
 
         setContentView(root);
 
@@ -137,6 +165,14 @@ public class MainActivity extends Activity {
         }
 
         Choreographer.getInstance().postFrameCallback(frame);
+    }
+
+    // 描き方の切り替え: 通常(画面部品) / 直接(専用の描画係)
+    private void setDirect(boolean d) {
+        direct = d;
+        drawBtn.setText(d ? "描画:直接" : "描画:通常");
+        meter.setVisibility(d ? View.INVISIBLE : View.VISIBLE);
+        surf.setActive(d);
     }
 
     private void setGain(double db) {
@@ -238,16 +274,20 @@ public class MainActivity extends Activity {
     private final Choreographer.FrameCallback frame = new Choreographer.FrameCallback() {
         @Override public void doFrame(long t) {
             Engine e = engine;
-            if (e != null) {
-                meter.set(e.vuL, e.vuR, e.pkL, e.pkR, e.channels());
-                if (t - lastInfo > 500_000_000L) {
-                    lastInfo = t;
-                    double lat = e.latencyMs;
-                    info.setText(infoHead + "\n入力の遅れ(推定) " + (lat > 0 ? String.format("%.1f", lat) + "ms" : "--") +
-                            (e.overruns > 0 ? " / 取りこぼし " + e.overruns : ""));
-                }
-            } else {
-                meter.set(0, 0, 0, 0, 0);
+            if (!direct) {
+                if (e != null) meter.set(e.vuL, e.vuR, e.pkL, e.pkR, e.channels());
+                else meter.set(0, 0, 0, 0, 0);
+                viewFrames++;
+                if (viewFpsT == 0) viewFpsT = t;
+                if (t - viewFpsT >= 1_000_000_000L) { viewFps = viewFrames * 1e9 / (t - viewFpsT); viewFrames = 0; viewFpsT = t; }
+            }
+            if (e != null && t - lastInfo > 500_000_000L) {
+                lastInfo = t;
+                double lat = e.latencyMs;
+                float hz = getWindowManager().getDefaultDisplay().getRefreshRate();
+                info.setText(infoHead + "\n入力の遅れ(推定) " + (lat > 0 ? String.format("%.1f", lat) + "ms" : "--") +
+                        (e.overruns > 0 ? " / 取りこぼし " + e.overruns : "") +
+                        "\n画面 " + Math.round(hz) + "Hz / 描画 " + (direct ? "直接 " + Math.round(surf.fps) : "通常 " + Math.round(viewFps)) + "回/秒");
             }
             Choreographer.getInstance().postFrameCallback(this);
         }
