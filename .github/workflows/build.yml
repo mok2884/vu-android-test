@@ -13,16 +13,51 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
+      - name: Arrange files
+        run: |
+          mkdir -p w/app/src/main/java/jp/mok/vutest
+          cp *.java w/app/src/main/java/jp/mok/vutest/
+          cp AndroidManifest.xml w/app/src/main/
+          cat > w/settings.gradle <<'EOF'
+          pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
+          dependencyResolutionManagement { repositories { google(); mavenCentral() } }
+          rootProject.name = "VuTest"
+          include ':app'
+          EOF
+          cat > w/build.gradle <<'EOF'
+          plugins { id 'com.android.application' version '8.5.2' apply false }
+          EOF
+          cat > w/gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx2g
+          EOF
+          cat > w/app/build.gradle <<'EOF'
+          plugins { id 'com.android.application' }
+          android {
+              namespace 'jp.mok.vutest'
+              compileSdk 34
+              defaultConfig {
+                  applicationId 'jp.mok.vutest'
+                  minSdk 24
+                  targetSdk 34
+                  versionCode 1
+                  versionName '0.1'
+              }
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+          }
+          EOF
       - name: Build
+        working-directory: w
         run: gradle assembleDebug --no-daemon
       - name: Publish APK
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk vu-test.apk
+          cp w/app/build/outputs/apk/debug/app-debug.apk vu-test.apk
           gh release delete apk --yes --cleanup-tag || true
           gh release create apk vu-test.apk --title "VU TEST (latest build)" --notes "Built from ${GITHUB_SHA::7}"
