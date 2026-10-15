@@ -18,22 +18,23 @@ jobs:
           gradle-version: '8.7'
       - name: Arrange files
         run: |
-          mkdir -p w/app/src/main/java/jp/mok/vutest
+          mkdir -p w/app/src/main/java/jp/mok/vutest w/app/src/main/cpp
           cp *.java w/app/src/main/java/jp/mok/vutest/
           cp AndroidManifest.xml w/app/src/main/
-          cat > w/settings.gradle <<'EOF'
+          cp aaudio_jni.c CMakeLists.txt w/app/src/main/cpp/
+          cat > w/settings.gradle <<'EOF2'
           pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
           dependencyResolutionManagement { repositories { google(); mavenCentral() } }
           rootProject.name = "VuTest"
           include ':app'
-          EOF
-          cat > w/build.gradle <<'EOF'
+          EOF2
+          cat > w/build.gradle <<'EOF2'
           plugins { id 'com.android.application' version '8.5.2' apply false }
-          EOF
-          cat > w/gradle.properties <<'EOF'
+          EOF2
+          cat > w/gradle.properties <<'EOF2'
           org.gradle.jvmargs=-Xmx2g
-          EOF
-          cat > w/app/build.gradle <<'EOF'
+          EOF2
+          cat > w/app/build.gradle <<'EOF2'
           plugins { id 'com.android.application' }
           android {
               namespace 'jp.mok.vutest'
@@ -42,15 +43,19 @@ jobs:
                   applicationId 'jp.mok.vutest'
                   minSdk 24
                   targetSdk 34
-                  versionCode 1
-                  versionName '0.1'
+                  versionCode 2
+                  versionName '0.2'
+                  ndk { abiFilters 'arm64-v8a', 'armeabi-v7a' }
+              }
+              externalNativeBuild {
+                  cmake { path 'src/main/cpp/CMakeLists.txt' }
               }
               compileOptions {
                   sourceCompatibility JavaVersion.VERSION_17
                   targetCompatibility JavaVersion.VERSION_17
               }
           }
-          EOF
+          EOF2
       - name: Fixed signing key
         run: mkdir -p ~/.android && cp debug.keystore ~/.android/debug.keystore
       - name: Build
