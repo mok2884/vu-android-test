@@ -48,6 +48,8 @@ public class MainActivity extends Activity {
     private MeterSurface surf;
     private boolean direct = false;
     private Button drawBtn;
+    private TextView lookText;
+    private int lookMs = 0;
     private int viewFrames = 0;
     private long viewFpsT = 0;
     private double viewFps = 0;
@@ -134,6 +136,26 @@ public class MainActivity extends Activity {
         root.addView(grow);
         setGain(0);
 
+        // 先読み: 0〜100ms、5ms刻み
+        LinearLayout lrow = new LinearLayout(this);
+        lrow.setOrientation(LinearLayout.HORIZONTAL);
+        lrow.setGravity(Gravity.CENTER_VERTICAL);
+        lookText = new TextView(this);
+        lookText.setTextColor(Color.rgb(220, 220, 220));
+        lookText.setTextSize(14);
+        lrow.addView(lookText, new LinearLayout.LayoutParams(dp(130), LinearLayout.LayoutParams.WRAP_CONTENT));
+        SeekBar lookBar = new SeekBar(this);
+        lookBar.setMax(20);
+        lookBar.setProgress(0);
+        lookBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar sb, int v, boolean user) { setLook(v * 5); }
+            @Override public void onStartTrackingTouch(SeekBar sb) {}
+            @Override public void onStopTrackingTouch(SeekBar sb) {}
+        });
+        lrow.addView(lookBar, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        root.addView(lrow);
+        setLook(0);
+
         info = new TextView(this);
         info.setTextColor(Color.rgb(170, 170, 170));
         info.setTextSize(12);
@@ -173,6 +195,12 @@ public class MainActivity extends Activity {
         drawBtn.setText(d ? "描画:直接" : "描画:通常");
         meter.setVisibility(d ? View.INVISIBLE : View.VISIBLE);
         surf.setActive(d);
+    }
+
+    private void setLook(int ms) {
+        lookMs = ms;
+        lookText.setText("先読み " + ms + " ms");
+        if (engine != null) engine.lookMs = ms;
     }
 
     private void setGain(double db) {
@@ -256,6 +284,7 @@ public class MainActivity extends Activity {
         String err = lowLat ? e.startNative(selectedDevice(), sr) : e.start(selectedDevice(), sr);
         if (err != null) { info.setText("開始できませんでした: " + err); return; }
         e.gain = Math.pow(10, gainDb / 20);
+        e.lookMs = lookMs;
         engine = e;
         startBtn.setText("STOP");
         AudioDeviceInfo routed = e.routedDevice();
@@ -275,7 +304,7 @@ public class MainActivity extends Activity {
         @Override public void doFrame(long t) {
             Engine e = engine;
             if (!direct) {
-                if (e != null) meter.set(e.vuL, e.vuR, e.pkL, e.pkR, e.channels());
+                if (e != null) meter.set(e.needleL(), e.needleR(), e.pkL, e.pkR, e.channels());
                 else meter.set(0, 0, 0, 0, 0);
                 viewFrames++;
                 if (viewFpsT == 0) viewFpsT = t;

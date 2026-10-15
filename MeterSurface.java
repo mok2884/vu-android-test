@@ -59,7 +59,7 @@ public class MeterSurface extends SurfaceView implements SurfaceHolder.Callback 
             if (!alive) return;
             if (active && w > 0) {
                 Engine e = src.engine();
-                if (e != null) painter.setValues(e.vuL, e.vuR, e.pkL, e.pkR, e.channels());
+                if (e != null) painter.setValues(e.needleL(), e.needleR(), e.pkL, e.pkR, e.channels());
                 else painter.setValues(0, 0, 0, 0, 0);
                 Canvas c = null;
                 try {

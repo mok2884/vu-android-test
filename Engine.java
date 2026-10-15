@@ -25,6 +25,20 @@ public class Engine {
     public volatile double latencyMs = -1;
     public volatile int overruns = 0;
     public volatile double gain = 1;              // 入力レベル調整 (倍率)
+    public volatile double lookMs = 0;            // 先読み (ミリ秒)。0なら今の針の位置をそのまま出す
+
+    // 先読み用: 針の位置・速さと、直近20msの入力の平均
+    private volatile double sYL, sVL, sUL, sYR, sVR, sUR;
+
+    // 「入力がこのまま続いたら、ms ミリ秒後に針はどこにいるか」を針の式で計算する
+    private static double ahead(double y, double v, double u, double ms) {
+        final double h = 0.001, k1 = WN * WN, k2 = 2 * ZETA * WN;
+        int steps = (int) Math.round(ms);
+        for (int i = 0; i < steps; i++) { v += (k1 * (u - y) - k2 * v) * h; y += v * h; }
+        return Math.max(0, y);
+    }
+    public double needleL() { double m = lookMs; return m <= 0 ? vuL : ahead(sYL, sVL, sUL, m); }
+    public double needleR() { double m = lookMs; return m <= 0 ? vuR : ahead(sYR, sVR, sUR, m); }
 
     private AudioRecord rec;
     private Thread thread;
@@ -147,6 +161,10 @@ public class Engine {
         final double fall = Math.pow(10, -20.0 / 20 * h / 1.5);  // ピークは1.5秒で20dB下がる
         double yL = 0, vL = 0, yR = 0, vR = 0, sL = 0, sR = 0, mL = 0, mR = 0, pL = 0, pR = 0;
         int n = 0, reads = 0;
+        final int AV = 20;                                 // 先読み用の入力の平均 (20ms)
+        final double[] rbL = new double[AV], rbR = new double[AV];
+        double raL = 0, raR = 0;
+        int rp = 0;
         long total = 0;
         AudioTimestamp ts = new AudioTimestamp();
         long[] nts = new long[2];
@@ -176,11 +194,16 @@ public class Engine {
                 if (++n >= blk) {
                     vL += (k1 * (sL / n - yL) - k2 * vL) * h; yL += vL * h;
                     vR += (k1 * (sR / n - yR) - k2 * vR) * h; yR += vR * h;
+                    raL += sL / n - rbL[rp]; rbL[rp] = sL / n;
+                    raR += sR / n - rbR[rp]; rbR[rp] = sR / n;
+                    if (++rp >= AV) rp = 0;
                     pL = Math.max(mL, pL * fall); pR = Math.max(mR, pR * fall);
                     sL = sR = mL = mR = 0; n = 0;
                 }
             }
             vuL = Math.max(0, yL); vuR = Math.max(0, yR); pkL = pL; pkR = pR;
+            sYL = yL; sVL = vL; sUL = Math.max(0, raL / AV);
+            sYR = yR; sVR = vR; sUR = Math.max(0, raR / AV);
             total += frames;
 
             // 入力の遅れの推定: 最後に受け取った音が、何ミリ秒前に入ってきたものか
