@@ -52,6 +52,10 @@ public class MainActivity extends Activity {
         ws.setJavaScriptEnabled(true);
         ws.setDomStorageEnabled(true);
         ws.setMediaPlaybackRequiresUserGesture(false);
+        // 2本指で拡大・縮小できるようにする (拡大縮小のボタンは出さない)
+        ws.setSupportZoom(true);
+        ws.setBuiltInZoomControls(true);
+        ws.setDisplayZoomControls(false);
         web.addJavascriptInterface(new Bridge(), "NativeAudio");
         setContentView(web);
         hideBars();
