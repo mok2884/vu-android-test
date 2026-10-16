@@ -4,60 +4,35 @@ import android.Manifest;
 import android.app.Activity;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
-import android.media.AudioDeviceCallback;
 import android.media.AudioDeviceInfo;
 import android.media.AudioManager;
-import android.os.Build;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
-import android.view.Choreographer;
-import android.view.Gravity;
+import android.view.Display;
 import android.view.View;
 import android.view.WindowManager;
-import android.view.Display;
-import android.widget.FrameLayout;
-import android.widget.AdapterView;
-import android.widget.ArrayAdapter;
-import android.widget.Button;
-import android.widget.LinearLayout;
-import android.widget.SeekBar;
-import android.widget.Spinner;
-import android.widget.TextView;
+import android.webkit.JavascriptInterface;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
 
-import java.util.ArrayList;
-import java.util.List;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
-// 確認用アプリ: 選んだ入力機器からステレオで受け取れるか、VUの遅れがどのくらいかを見る
+// HTML版のメーターを画面いっぱいに表示する。音の受け取りとVUの針の計算はアプリでやる
 public class MainActivity extends Activity {
 
     private AudioManager am;
-    private Spinner devSpinner, srSpinner;
-    private Button startBtn;
-    private TextView info;
-    private MeterView meter;
-    private final List<AudioDeviceInfo> devices = new ArrayList<>();
-    private final int[] RATES = {48000, 44100, 96000};
-    private Engine engine;
-    private String infoHead = "";
-    private double gainDb = 0;
-    private TextView gainText;
-    private SeekBar gainBar;
-    private boolean lowLat = false;
-    private Button modeBtn;
-    private MeterSurface surf;
-    private boolean direct = false;
-    private Button drawBtn;
-    private TextView lookText;
-    private int lookMs = 0;
-    private int viewFrames = 0;
-    private long viewFpsT = 0;
-    private double viewFps = 0;
+    private WebView web;
+    private volatile Engine engine;
+    // スライダーと LR/LL は、入力を開き直しても引き継ぐ
+    private volatile double gL = 1, gR = 1;
+    private volatile boolean mono = false;
 
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
-        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);   // 画面を消さない
+        am = (AudioManager) getSystemService(AUDIO_SERVICE);
+
         // 画面の書き換えがいちばん速いモードを選ぶ (同じ解像度の中で)
         try {
             Display dsp = getWindowManager().getDefaultDisplay();
@@ -70,262 +45,156 @@ public class MainActivity extends Activity {
             lp.preferredDisplayModeId = best.getModeId();
             getWindow().setAttributes(lp);
         } catch (Exception ignored) {}
-        am = (AudioManager) getSystemService(AUDIO_SERVICE);
 
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(Color.rgb(17, 17, 17));
-        int pad = dp(10);
-        root.setPadding(pad, pad, pad, pad);
-
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-
-        devSpinner = new Spinner(this);
-        row.addView(devSpinner, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-
-        srSpinner = new Spinner(this);
-        List<String> rs = new ArrayList<>();
-        for (int r : RATES) rs.add((r / 1000.0 == r / 1000 ? String.valueOf(r / 1000) : String.valueOf(r / 1000.0)) + "k");
-        ArrayAdapter<String> ra = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, rs);
-        ra.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-        srSpinner.setAdapter(ra);
-        row.addView(srSpinner, new LinearLayout.LayoutParams(dp(90), LinearLayout.LayoutParams.WRAP_CONTENT));
-
-        modeBtn = new Button(this);
-        modeBtn.setText("標準");
-        modeBtn.setOnClickListener(v -> {
-            if (engine != null) return;          // 止めてから切り替える
-            lowLat = !lowLat;
-            modeBtn.setText(lowLat ? "低遅延" : "標準");
-        });
-        row.addView(modeBtn, new LinearLayout.LayoutParams(dp(100), LinearLayout.LayoutParams.WRAP_CONTENT));
-
-        startBtn = new Button(this);
-        startBtn.setText("START");
-        startBtn.setOnClickListener(v -> toggle());
-        row.addView(startBtn, new LinearLayout.LayoutParams(dp(110), LinearLayout.LayoutParams.WRAP_CONTENT));
-        root.addView(row);
-
-        // 入力レベル調整: -20〜+20dB、0.5dB刻み
-        LinearLayout grow = new LinearLayout(this);
-        grow.setOrientation(LinearLayout.HORIZONTAL);
-        grow.setGravity(Gravity.CENTER_VERTICAL);
-        gainText = new TextView(this);
-        gainText.setTextColor(Color.rgb(220, 220, 220));
-        gainText.setTextSize(14);
-        grow.addView(gainText, new LinearLayout.LayoutParams(dp(130), LinearLayout.LayoutParams.WRAP_CONTENT));
-        gainBar = new SeekBar(this);
-        gainBar.setMax(80);
-        gainBar.setProgress(40);
-        gainBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override public void onProgressChanged(SeekBar sb, int v, boolean user) { setGain((v - 40) / 2.0); }
-            @Override public void onStartTrackingTouch(SeekBar sb) {}
-            @Override public void onStopTrackingTouch(SeekBar sb) {}
-        });
-        grow.addView(gainBar, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-        Button zero = new Button(this);
-        zero.setText("0dB");
-        zero.setOnClickListener(v -> gainBar.setProgress(40));
-        grow.addView(zero, new LinearLayout.LayoutParams(dp(80), LinearLayout.LayoutParams.WRAP_CONTENT));
-        drawBtn = new Button(this);
-        drawBtn.setText("描画:通常");
-        drawBtn.setOnClickListener(v -> setDirect(!direct));
-        grow.addView(drawBtn, new LinearLayout.LayoutParams(dp(120), LinearLayout.LayoutParams.WRAP_CONTENT));
-        root.addView(grow);
-        setGain(0);
-
-        // 先読み: 0〜100ms、5ms刻み
-        LinearLayout lrow = new LinearLayout(this);
-        lrow.setOrientation(LinearLayout.HORIZONTAL);
-        lrow.setGravity(Gravity.CENTER_VERTICAL);
-        lookText = new TextView(this);
-        lookText.setTextColor(Color.rgb(220, 220, 220));
-        lookText.setTextSize(14);
-        lrow.addView(lookText, new LinearLayout.LayoutParams(dp(130), LinearLayout.LayoutParams.WRAP_CONTENT));
-        SeekBar lookBar = new SeekBar(this);
-        lookBar.setMax(20);
-        lookBar.setProgress(0);
-        lookBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override public void onProgressChanged(SeekBar sb, int v, boolean user) { setLook(v * 5); }
-            @Override public void onStartTrackingTouch(SeekBar sb) {}
-            @Override public void onStopTrackingTouch(SeekBar sb) {}
-        });
-        lrow.addView(lookBar, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-        root.addView(lrow);
-        setLook(0);
-
-        info = new TextView(this);
-        info.setTextColor(Color.rgb(170, 170, 170));
-        info.setTextSize(12);
-        info.setPadding(0, dp(6), 0, dp(6));
-        root.addView(info);
-
-        FrameLayout box = new FrameLayout(this);
-        meter = new MeterView(this);
-        surf = new MeterSurface(this, () -> engine);
-        box.addView(surf, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
-        box.addView(meter, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
-        root.addView(box, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
-
-        setContentView(root);
-
-        devSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
-            @Override public void onItemSelected(AdapterView<?> p, View v, int pos, long id) { if (engine == null) showDeviceInfo(); }
-            @Override public void onNothingSelected(AdapterView<?> p) {}
-        });
-
-        am.registerAudioDeviceCallback(new AudioDeviceCallback() {
-            @Override public void onAudioDevicesAdded(AudioDeviceInfo[] a) { refreshDevices(); }
-            @Override public void onAudioDevicesRemoved(AudioDeviceInfo[] r) { refreshDevices(); }
-        }, new Handler(Looper.getMainLooper()));
-        refreshDevices();
+        web = new WebView(this);
+        web.setBackgroundColor(Color.rgb(5, 5, 5));
+        WebSettings ws = web.getSettings();
+        ws.setJavaScriptEnabled(true);
+        ws.setDomStorageEnabled(true);
+        ws.setMediaPlaybackRequiresUserGesture(false);
+        web.addJavascriptInterface(new Bridge(), "NativeAudio");
+        setContentView(web);
+        hideBars();
 
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, 1);
         }
-
-        Choreographer.getInstance().postFrameCallback(frame);
+        web.loadUrl("file:///android_asset/vu_meter.html");
     }
 
-    // 描き方の切り替え: 通常(画面部品) / 直接(専用の描画係)
-    private void setDirect(boolean d) {
-        direct = d;
-        drawBtn.setText(d ? "描画:直接" : "描画:通常");
-        meter.setVisibility(d ? View.INVISIBLE : View.VISIBLE);
-        surf.setActive(d);
+    // 上と下のバーを隠して、メーターを画面いっぱいにする
+    private void hideBars() {
+        web.setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
     }
 
-    private void setLook(int ms) {
-        lookMs = ms;
-        lookText.setText("先読み " + ms + " ms");
-        if (engine != null) engine.lookMs = ms;
+    @Override
+    public void onWindowFocusChanged(boolean f) {
+        super.onWindowFocusChanged(f);
+        if (f) hideBars();
     }
 
-    private void setGain(double db) {
-        gainDb = db;
-        gainText.setText("IN " + (db >= 0 ? "+" : "") + String.format("%.1f", db) + " dB");
-        if (engine != null) engine.gain = Math.pow(10, db / 20);
+    @Override
+    public void onRequestPermissionsResult(int code, String[] p, int[] r) {
+        web.reload();      // 許可されたら、機器の一覧を作り直す
     }
 
-    private int dp(int v) { return Math.round(v * getResources().getDisplayMetrics().density); }
+    @Override
+    protected void onDestroy() {
+        Engine e = engine;
+        engine = null;
+        if (e != null) e.stop();
+        super.onDestroy();
+    }
 
     private static String typeName(int t) {
         switch (t) {
             case AudioDeviceInfo.TYPE_BUILTIN_MIC: return "本体マイク";
             case AudioDeviceInfo.TYPE_USB_DEVICE: return "USB";
-            case AudioDeviceInfo.TYPE_USB_HEADSET: return "USBヘッドセット";
-            case AudioDeviceInfo.TYPE_USB_ACCESSORY: return "USBアクセサリ";
-            case AudioDeviceInfo.TYPE_WIRED_HEADSET: return "有線ヘッドセット";
+            case AudioDeviceInfo.TYPE_USB_HEADSET: return "USB";
+            case AudioDeviceInfo.TYPE_WIRED_HEADSET: return "マイク端子";
             case AudioDeviceInfo.TYPE_BLUETOOTH_SCO: return "Bluetooth";
-            case AudioDeviceInfo.TYPE_TELEPHONY: return "電話";
-            default: return "type" + t;
+            default: return "入力";
         }
     }
 
-    private static String join(int[] a) {
-        if (a == null || a.length == 0) return "?";
-        StringBuilder s = new StringBuilder();
-        for (int i = 0; i < a.length; i++) { if (i > 0) s.append(","); s.append(a[i]); }
-        return s.toString();
-    }
+    // HTML から呼ばれる窓口 (HTML の中では NativeAudio という名前)
+    private class Bridge {
 
-    private void refreshDevices() {
-        AudioDeviceInfo keep = null;
-        int sel = devSpinner.getSelectedItemPosition();
-        if (sel >= 0 && sel < devices.size()) keep = devices.get(sel);
-        devices.clear();
-        List<String> names = new ArrayList<>();
-        int usbIndex = -1, keepIndex = -1;
-        for (AudioDeviceInfo d : am.getDevices(AudioManager.GET_DEVICES_INPUTS)) {
-            int t = d.getType();
-            if (t == AudioDeviceInfo.TYPE_TELEPHONY || t == AudioDeviceInfo.TYPE_FM_TUNER) continue;
-            if (keep != null && d.getId() == keep.getId()) keepIndex = devices.size();
-            if (usbIndex < 0 && (t == AudioDeviceInfo.TYPE_USB_DEVICE || t == AudioDeviceInfo.TYPE_USB_HEADSET)) usbIndex = devices.size();
-            devices.add(d);
-            names.add(typeName(t) + " " + d.getProductName());
+        // 入力機器の一覧。USB機器を先頭にする
+        @JavascriptInterface
+        public String devices() {
+            JSONArray usb = new JSONArray(), other = new JSONArray();
+            try {
+                for (AudioDeviceInfo d : am.getDevices(AudioManager.GET_DEVICES_INPUTS)) {
+                    int t = d.getType();
+                    if (t == AudioDeviceInfo.TYPE_TELEPHONY || t == AudioDeviceInfo.TYPE_FM_TUNER) continue;
+                    JSONObject o = new JSONObject();
+                    o.put("id", d.getId());
+                    o.put("name", typeName(t) + " " + d.getProductName());
+                    if (t == AudioDeviceInfo.TYPE_USB_DEVICE || t == AudioDeviceInfo.TYPE_USB_HEADSET) usb.put(o);
+                    else other.put(o);
+                }
+                for (int i = 0; i < other.length(); i++) usb.put(other.get(i));
+            } catch (Exception ignored) {}
+            return usb.toString();
         }
-        ArrayAdapter<String> a = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, names);
-        a.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-        devSpinner.setAdapter(a);
-        if (keepIndex >= 0) devSpinner.setSelection(keepIndex);
-        else if (usbIndex >= 0) devSpinner.setSelection(usbIndex);   // USB機器があれば最初から選んでおく
-        if (engine == null) showDeviceInfo();
-    }
 
-    private AudioDeviceInfo selectedDevice() {
-        int i = devSpinner.getSelectedItemPosition();
-        return (i >= 0 && i < devices.size()) ? devices.get(i) : null;
-    }
-
-    // 機器が「対応している」と言っている ch 数と周波数
-    private void showDeviceInfo() {
-        AudioDeviceInfo d = selectedDevice();
-        if (d == null) { info.setText("入力機器が見つかりません"); return; }
-        info.setText("機器の申告: ch " + join(d.getChannelCounts()) + " / Hz " + join(d.getSampleRates()) +
-                "\nSTARTを押すと、実際に受け取れた内容がここに出ます");
-    }
-
-    private void toggle() {
-        if (engine != null) {
-            engine.stop();
-            engine = null;
-            startBtn.setText("START");
-            showDeviceInfo();
-            return;
+        // 入力を開く。まず低遅延モード、だめなら標準
+        @JavascriptInterface
+        public synchronized String start(int deviceId) {
+            stopEngine();
+            JSONObject o = new JSONObject();
+            try {
+                if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                    o.put("ok", false); o.put("err", "マイクの許可がありません");
+                    return o.toString();
+                }
+                AudioDeviceInfo dev = null;
+                for (AudioDeviceInfo d : am.getDevices(AudioManager.GET_DEVICES_INPUTS)) if (d.getId() == deviceId) dev = d;
+                Engine e = new Engine();
+                e.gainL = gL; e.gainR = gR; e.mono = mono;
+                String err = e.startNative(dev, 48000);
+                if (err != null) {
+                    e = new Engine();
+                    e.gainL = gL; e.gainR = gR; e.mono = mono;
+                    err = e.start(dev, 48000);
+                }
+                if (err != null) { o.put("ok", false); o.put("err", err); return o.toString(); }
+                engine = e;
+                o.put("ok", true);
+                o.put("sr", e.sampleRate());
+                o.put("ch", e.channels());
+                o.put("mode", e.isNative() ? "LOWLAT" : "STD");
+            } catch (Exception ex) {
+                try { o.put("ok", false); o.put("err", String.valueOf(ex.getMessage())); } catch (Exception ignored) {}
+            }
+            return o.toString();
         }
-        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, 1);
-            return;
-        }
-        int sr = RATES[Math.max(0, srSpinner.getSelectedItemPosition())];
-        Engine e = new Engine();
-        String err = lowLat ? e.startNative(selectedDevice(), sr) : e.start(selectedDevice(), sr);
-        if (err != null) { info.setText("開始できませんでした: " + err); return; }
-        e.gain = Math.pow(10, gainDb / 20);
-        e.lookMs = lookMs;
-        engine = e;
-        startBtn.setText("STOP");
-        AudioDeviceInfo routed = e.routedDevice();
-        if (e.isNative()) {
-            routed = null;
-            for (AudioDeviceInfo dd : devices) if (dd.getId() == e.nativeDeviceId()) routed = dd;
-        }
-        infoHead = "受け取り: " + e.channels() + "ch / " + e.sampleRate() + "Hz / " + e.formatName() + " / " + e.sourceName() +
-                "\n実際の入力: " + (routed == null ? "?" : typeName(routed.getType()) + " " + routed.getProductName()) +
-                " / バッファ " + String.format("%.1f", e.bufferMs()) + "ms" +
-                (e.isNative() ? "\n" + e.nativeInfo() : "");
-        info.setText(infoHead);
-    }
 
-    private long lastInfo = 0;
-    private final Choreographer.FrameCallback frame = new Choreographer.FrameCallback() {
-        @Override public void doFrame(long t) {
+        @JavascriptInterface
+        public synchronized void stop() { stopEngine(); }
+
+        private void stopEngine() {
             Engine e = engine;
-            if (!direct) {
-                if (e != null) meter.set(e.needleL(), e.needleR(), e.pkL, e.pkR, e.channels());
-                else meter.set(0, 0, 0, 0, 0);
-                viewFrames++;
-                if (viewFpsT == 0) viewFpsT = t;
-                if (t - viewFpsT >= 1_000_000_000L) { viewFps = viewFrames * 1e9 / (t - viewFpsT); viewFrames = 0; viewFpsT = t; }
-            }
-            if (e != null && t - lastInfo > 500_000_000L) {
-                lastInfo = t;
-                double lat = e.latencyMs;
-                float hz = getWindowManager().getDefaultDisplay().getRefreshRate();
-                info.setText(infoHead + "\n入力の遅れ(推定) " + (lat > 0 ? String.format("%.1f", lat) + "ms" : "--") +
-                        (e.overruns > 0 ? " / 取りこぼし " + e.overruns : "") +
-                        "\n画面 " + Math.round(hz) + "Hz / 描画 " + (direct ? "直接 " + Math.round(surf.fps) : "通常 " + Math.round(viewFps)) + "回/秒");
-            }
-            Choreographer.getInstance().postFrameCallback(this);
+            engine = null;
+            if (e != null) e.stop();
         }
-    };
 
-    @Override
-    protected void onDestroy() {
-        if (engine != null) engine.stop();
-        engine = null;
-        super.onDestroy();
+        // 音そのもの (L,R を交互に並べた float を base64 にしたもの)
+        @JavascriptInterface
+        public String pull(int frames) {
+            Engine e = engine;
+            return e == null ? "" : e.pull(frames);
+        }
+
+        // VUの針の位置 (絶対値の平均。0VU = 振幅0.1の正弦波)。"L,R"
+        @JavascriptInterface
+        public String vu() {
+            Engine e = engine;
+            return e == null ? "0,0" : e.vuL + "," + e.vuR;
+        }
+
+        @JavascriptInterface
+        public void setGains(double dbL, double dbR) {
+            gL = Math.pow(10, dbL / 20); gR = Math.pow(10, dbR / 20);
+            Engine e = engine;
+            if (e != null) { e.gainL = gL; e.gainR = gR; }
+        }
+
+        @JavascriptInterface
+        public void setMono(boolean m) {
+            mono = m;
+            Engine e = engine;
+            if (e != null) e.mono = m;
+        }
+
+        // 入力の遅れ(推定、ms)
+        @JavascriptInterface
+        public double latency() {
+            Engine e = engine;
+            return e == null ? -1 : e.latencyMs;
+        }
     }
 }

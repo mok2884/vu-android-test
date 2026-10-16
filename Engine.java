@@ -5,6 +5,10 @@ import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.media.AudioTimestamp;
 import android.media.MediaRecorder;
+import android.util.Base64;
+
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 
 // 入力機器から音を受け取って、VU(針の式)とピークを計算する
 public class Engine {
@@ -24,7 +28,30 @@ public class Engine {
     public volatile double vuL, vuR, pkL, pkR;   // vu: 絶対値の平均(針の位置) / pk: ピーク(0〜1)
     public volatile double latencyMs = -1;
     public volatile int overruns = 0;
-    public volatile double gain = 1;              // 入力レベル調整 (倍率)
+    public volatile double gainL = 1, gainR = 1;  // L / R それぞれのレベル (倍率)。VUの計算に使う
+    public volatile boolean mono = false;         // true = 1ch目を L と R の両方に使う (HTML版の LL)
+
+    // HTML側に渡す音 (加工前の L, R を交互に並べたもの)。約2.7秒ぶん持てる
+    private static final int RING = 1 << 18, MASK = RING - 1;
+    private final float[] ring = new float[RING];
+    private volatile long wpos = 0;
+    private long rpos = 0;
+    private boolean primed = false;
+
+    // HTML側が frames 個(1chあたり)まで受け取る。たまりすぎていたら古いぶんを捨てて、遅れが増えないようにする
+    public synchronized String pull(int frames) {
+        long w = wpos;
+        long avail = (w - rpos) / 2;
+        // 最初は少しためてから渡し始める (足りなくなりにくくするため)
+        if (!primed) { if (avail < frames * 2L) return ""; primed = true; }
+        if (avail > frames * 4L) { rpos = w - frames * 2L * 2; avail = frames * 2L; }
+        int n = (int) Math.min(frames, avail);
+        if (n <= 0) return "";
+        ByteBuffer bb = ByteBuffer.allocate(n * 8).order(ByteOrder.LITTLE_ENDIAN);
+        for (int i = 0; i < n * 2; i++) bb.putFloat(ring[(int) ((rpos + i) & MASK)]);
+        rpos += n * 2L;
+        return Base64.encodeToString(bb.array(), Base64.NO_WRAP);
+    }
     public volatile double lookMs = 0;            // 先読み (ミリ秒)。0なら今の針の位置をそのまま出す
 
     // 先読み用: 針の位置・速さと、直近20msの入力の平均
@@ -181,12 +208,16 @@ public class Engine {
                 if (got <= 0) { if (got < 0) overruns++; continue; }
                 frames = got / ch;
             }
-            final double g = gain;
+            final double gl = gainL, gr = gainR;
+            final boolean mo = mono;
+            long w = wpos;
             for (int i = 0; i < frames; i++) {
                 double l, r;
-                if (isFloat) { l = fb[i * ch]; r = ch > 1 ? fb[i * ch + 1] : l; }
-                else { l = sb[i * ch] / 32768.0; r = ch > 1 ? sb[i * ch + 1] / 32768.0 : l; }
-                l *= g; r *= g;
+                if (isFloat) { l = fb[i * ch]; r = ch > 1 ? fb[i * ch + 1] : 0; }
+                else { l = sb[i * ch] / 32768.0; r = ch > 1 ? sb[i * ch + 1] / 32768.0 : 0; }
+                ring[(int) (w & MASK)] = (float) l; ring[(int) ((w + 1) & MASK)] = (float) r; w += 2;
+                if (mo) r = l;                                     // LL: 1ch目を R にも
+                l *= gl; r *= gr;
                 double al = Math.abs(l), ar = Math.abs(r);
                 sL += al; sR += ar;
                 if (al > mL) mL = al;
@@ -201,6 +232,7 @@ public class Engine {
                     sL = sR = mL = mR = 0; n = 0;
                 }
             }
+            wpos = w;
             vuL = Math.max(0, yL); vuR = Math.max(0, yR); pkL = pL; pkR = pR;
             sYL = yL; sVL = vL; sUL = Math.max(0, raL / AV);
             sYR = yR; sVR = vR; sUR = Math.max(0, raR / AV);

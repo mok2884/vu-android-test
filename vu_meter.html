@@ -1,0 +1,1493 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<style>
+body { background-color: #050505; margin: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; height: 100vh; font-family: sans-serif; }
+.console { background: #1a1a1a; padding: 25px; border-radius: 12px; border: 2px solid #333; display: flex; flex-direction: column; align-items: center; gap: 15px; }
+.display-row { display: flex; gap: 20px; align-items: flex-end; }
+.unit { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.label { color: #eee; font-weight: bold; font-size: 16px; font-family: sans-serif; }
+/* 窓の表示の大きさ。中身 (VUは280x145、スコープは220x220で描く) をまるごと拡大縮小する */
+:root{ --vuK: 0.92; --scopeK: 1.09; }
+.meter { position: relative; width: calc(280px * var(--vuK)); height: calc(145px * var(--vuK)); background-color: #fdfae1; overflow: hidden; border-radius: 4px; border: 1px solid #444; }
+.meterInner { position: absolute; left: 0; top: 0; width: 280px; height: 145px; transform-origin: 0 0; transform: scale(var(--vuK)); }
+.scope { position: relative; width: calc(220px * var(--scopeK)); height: calc(220px * var(--scopeK)); background-color: #000; border: 1px solid #444; border-radius: 4px; overflow: hidden; }
+.scopeInner { position: absolute; left: 0; top: 0; width: 220px; height: 220px; transform-origin: 0 0; transform: scale(var(--scopeK)); }
+.needle {
+    position: absolute;
+    top: 181px;
+    left: 140px;
+    width: 0;
+    height: 150px;
+    margin-top: -150px;
+    transform-origin: bottom center;
+    z-index: 10;
+}
+
+.needle::before {
+    content: "";
+    position: absolute;
+    left: -3px;
+    bottom: 0;
+    width: 6px;
+    height: 150px;
+    background: #111;
+    clip-path: polygon(
+        33% 0%,
+        67% 0%,
+        100% 100%,
+        0% 100%
+    );
+}
+    
+.controls { display: flex; flex-wrap: wrap; justify-content: center; gap: 20px; color: #aaa; margin-top: 10px; }
+.knob-group { display: flex; flex-direction: column; align-items: center; gap: 5px; font-size: 12px; }
+select { background: #333; color: #fff; border: 1px solid #555; padding: 5px; border-radius: 4px; width: 200px; margin-bottom: 10px; }
+input[type=range] { width: 130px; cursor: pointer; }
+#btn { padding: 10px 0; width: 140px; flex-shrink: 0; white-space: nowrap; cursor: pointer; font-weight: bold; border-radius: 4px; border: none; background: #444; color: white; }
+#btn.on { background: #d00; }
+canvas { position: absolute; top: 0; left: 0; z-index: 5; }
+    .rta-window {
+    width:760px;
+    height:260px;
+    background:#050505;
+    border:1px solid #444;
+    box-sizing:border-box;
+}
+
+#rtaCanvas {
+    position:static;
+    display:block;
+}
+    .rta-panel{
+    background:#1a1a1a;
+    border:2px solid #333;
+    border-radius:12px;
+    padding:15px;
+    margin-top:15px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:10px;
+}
+.pbtn{
+    width:74px;
+    height:28px;
+    padding:0;
+    box-sizing:border-box;
+    background:#2a2a2a;
+    color:#ddd;
+    border:1px solid #555;
+    border-radius:6px;
+    font-size:12px;
+    font-weight:bold;
+    letter-spacing:1px;
+    cursor:pointer;
+    transition:background .12s, border-color .12s;
+}
+.pbtn:hover{ background:#383838; border-color:#777; }
+.pbtn:active{ background:#1c1c1c; }
+.pbtn.on{ background:#0a7a3c; border-color:#16c060; color:#fff; }
+.pbtn.tab{ width:104px; }
+/* 入力選択の箱と同じ見た目のボタン (LR / LL) */
+.selbtn{ background:#333; color:#999; border:1px solid #555; border-radius:4px; padding:5px 0; width:40px; font-size:13px; font-weight:bold; cursor:pointer; }
+.selbtn.on{ background:#555; color:#fff; border-color:#888; }
+/* Rだけのレベル。いつも暗めの灰色 */
+input[type=range].rTrim{ accent-color:#5a5a5a; filter:grayscale(1) brightness(0.75); }
+#vuValR{ color:#777; font-size:12px; font-variant-numeric:tabular-nums; }
+.tpBox{ display:flex; flex-direction:column; gap:3px; margin-left:6px; font-size:12px; line-height:1; color:#888; font-variant-numeric:tabular-nums; white-space:nowrap; text-align:left; }
+.tpBox .tpLab{ display:inline-block; width:46px; }
+.tpBox .tpNum{ display:inline-block; width:40px; text-align:right; }
+.loudCol{ display:flex; flex-direction:column; align-items:center; gap:6px; width:52px; }
+.loudName{ font-size:12px; color:#aaa; }
+.loudNum{ font-size:15px; color:#ccc; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.loudTrack{ width:20px; height:220px; background:#222; position:relative; }
+#vuVal, #scopeVal{
+    color:#888;
+    font-size:12px;
+    font-variant-numeric:tabular-nums;
+}
+#mainPanel{
+    transform-origin: top center;
+}
+    
+</style>
+</head>
+<body>
+    <div id="mainPanel">
+<div class="console">
+  
+
+<div class="display-row">
+    <div class="unit" id="vuGroup">
+<div style="display:flex; align-items:flex-end; gap:70px;">
+    <button id="btn">POWER OFF</button>
+
+    <div class="knob-group">
+        <label style="color:#0f0">
+            SELECT INPUT DEVICE:
+        </label>
+
+        <div style="display:flex; gap:6px; align-items:flex-start;">
+            <select id="micSelect">
+                <option value="">
+                    -- Device List --
+                </option>
+            </select>
+            <button id="modeStereo" class="selbtn" title="ステレオ (L→L、R→R)">LR</button>
+            <button id="modeMono" class="selbtn" title="モノラル (L を両方へ)">LL</button>
+        </div>
+        <div id="latVal" style="font-size:11px; color:#888; height:14px; width:292px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:center; font-variant-numeric:tabular-nums;"></div>
+    </div>
+
+</div>
+<div style="height:20px;"></div>
+        
+   <div style="display:flex; gap:18px; align-items:flex-start; margin-bottom:2px;">
+   <div style="display:flex; flex-direction:column; align-items:center;">
+    <input type="range" id="vuGainCoarse" min="0" max="40" step="1" value="20">
+    <input type="range" id="vuGainFine" min="-1" max="1" step="0.1" value="0">
+    <span id="vuVal">0.0 dB</span>
+   </div>
+   <div style="display:flex; flex-direction:column; align-items:center;">
+    <input type="range" class="rTrim" id="vuGainCoarseR" min="0" max="40" step="1" value="20">
+    <input type="range" class="rTrim" id="vuGainFineR" min="-1" max="1" step="0.1" value="0">
+    <span id="vuValR">R +0.0 dB</span>
+   </div>
+   </div>
+
+<div style="display:flex; gap:20px; align-items:flex-start;">
+
+    <div class="unit">
+        <div class="label">L-VU</div>
+        <div class="meter">
+            <div class="meterInner">
+            <canvas id="cvsL" width="280" height="145"></canvas>
+            <div id="ndlL" class="needle"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="unit">
+        <div class="label">R-VU</div>
+        <div class="meter">
+            <div class="meterInner">
+            <canvas id="cvsR" width="280" height="145"></canvas>
+            <div id="ndlR" class="needle"></div>
+            </div>
+        </div>
+    </div>
+
+</div>
+</div>
+   <div class="unit">
+
+        <input type="range" id="scopeGain" min="0.1" max="5.0" step="0.1" value="1.0">
+        <span id="scopeVal">x1.0</span>
+
+        <div class="label">PHASE SCOPE</div>
+
+        <div class="scope">
+            <div class="scopeInner"><canvas id="cvsScope" width="220" height="220"></canvas></div>
+        </div>
+
+    </div>
+
+    <div class="unit" style="width:112px;">
+        <div class="label">LOUDNESS</div>
+
+        <div style="display:flex; gap:4px; align-items:flex-end;">
+            <div class="loudCol">
+                <div class="loudName">M</div>
+                <div class="loudTrack" style="height:220px;">
+                    <div id="barM" style="position:absolute; bottom:0; width:100%; height:0%;"></div>
+                    <div class="loudTgt" style="position:absolute; left:-3px; right:-3px; height:1px; background:#fff;"></div>
+                </div>
+                <div class="loudNum" id="mVal">--.-</div>
+            </div>
+            <div class="loudCol">
+                <div class="loudName">S</div>
+                <div class="loudTrack" style="height:220px;">
+                    <div id="barS" style="position:absolute; bottom:0; width:100%; height:0%;"></div>
+                    <div class="loudTgt" style="position:absolute; left:-3px; right:-3px; height:1px; background:#fff;"></div>
+                </div>
+                <div class="loudNum" id="sVal">--.-</div>
+            </div>
+        </div>
+    </div>
+
+</div>
+        </div>
+    
+    
+    
+<div class="rta-panel">
+
+    <div style="display:flex; align-items:center; gap:8px; width:760px;">
+        <button id="tabRta" class="pbtn tab on">RTA</button>
+        <button id="tabLoud" class="pbtn tab">LOUDNESS</button>
+        <div class="tpBox">
+            <div><span class="tpLab">TP 10s</span><span class="tpNum" id="tpRecentVal">--.-</span> dBTP</div>
+            <div><span class="tpLab">TP MAX</span><span class="tpNum" id="tpMaxVal">--.-</span> dBTP</div>
+        </div>
+        <div style="flex:1;"></div>
+        <div style="display:flex; flex-direction:column; align-items:flex-end; white-space:nowrap; color:#0f0; line-height:1;">
+            <span style="font-size:11px; color:#aaa; margin-bottom:2px;">INTEGRATED</span>
+            <div><span id="lkfsVal" style="font-size:50px; font-weight:bold; font-variant-numeric:tabular-nums;">--.-</span><span style="font-size:18px;"> LKFS</span></div>
+        </div>
+        <div style="display:flex; gap:6px; margin-left:10px;">
+            <button id="lkfsStart" class="pbtn">START</button>
+            <button id="lkfsReset" class="pbtn">RESET</button>
+        </div>
+    </div>
+
+    <div class="rta-window">
+        <canvas id="rtaCanvas"
+                width="760"
+                height="260"></canvas>
+    </div>
+
+</div>
+
+
+
+    
+   
+   
+</div>
+
+<script>
+// Androidアプリの中で開いたときは、音をアプリから受け取る (アプリが NativeAudio を用意する)
+const NATIVE = typeof window.NativeAudio !== "undefined";
+
+const FIT_TOP = 20;        // 画面の上端とのあいだの余白 (px)
+const FIT_RATIO = 0.85;    // 画面に対する全体の大きさ (1で画面いっぱい)
+let fitW = 0;
+
+// 全体を画面に収まる大きさにする
+function fitScreen(){
+
+    const panel =
+        document.getElementById("mainPanel");
+
+    panel.style.marginTop = FIT_TOP + "px";
+    panel.style.transform = "scale(1)";
+
+    const rect =
+        panel.getBoundingClientRect();
+
+    fitW = document.documentElement.clientWidth;
+
+    const scaleX =
+        fitW / rect.width;
+
+    const scaleY =
+        (window.innerHeight - FIT_TOP) / rect.height;
+
+    const scale =
+        Math.min(scaleX, scaleY) * FIT_RATIO;
+
+    panel.style.transform =
+        `scale(${scale})`;
+
+    scopeResize();
+}
+
+// スコープの絵を、実際に表示される細かさで描く (拡大でぼやけないように)
+let SCOPE_RES = 1;   // スコープ1pxあたりの画面上の実ピクセル数
+function scopeResize(){
+    const cv = document.getElementById("cvsScope");
+    if (!cv) return;
+    cv.style.width = "220px"; cv.style.height = "220px";
+    const k = cv.getBoundingClientRect().width / 220 * (window.devicePixelRatio || 1);
+    const px = Math.max(220, Math.round(220 * k));
+    if (cv.width !== px) { cv.width = px; cv.height = px; }
+    SCOPE_RES = cv.width / 220;
+}
+
+// 合わせるのは、開いたときと、横幅が変わったとき(回転など)だけ。
+// アドレスバーの出入りや指での拡大では、高さしか変わらないので動かさない
+window.addEventListener("load", fitScreen);
+window.addEventListener("resize", () => {
+    if (document.documentElement.clientWidth !== fitW) fitScreen();
+});
+window.addEventListener("orientationchange", () => setTimeout(fitScreen, 300));
+// ===== 画面のスリープ防止 =====
+// 2段構え。(1) ブラウザに「画面を消さないで」と頼む (Wake Lock)。
+// (2) 断られる機種もあるので、音のない小さな動画を裏で流し続けて、画面を起こしておく。
+// (2) の動画は NoSleep.js (MIT License, Copyright (c) Rich Tibbett) に含まれるものを使用
+// 状態の表示: WL = Wake Lockが効いている / VID = 動画で起こしている / NO = どちらも効いていない / -- = まだ試していない
+let wakeLock = null, keepAwakeState = "--", videoAwake = false;
+function updateAwakeState(){
+    keepAwakeState = wakeLock ? "WL" : videoAwake ? "VID" : "NO";
+}
+async function requestWakeLock(){
+    if (!('wakeLock' in navigator) || wakeLock) return;
+    try {
+        wakeLock = await navigator.wakeLock.request('screen');
+        wakeLock.addEventListener('release', () => { wakeLock = null; updateAwakeState(); });
+    } catch (e) {}
+    updateAwakeState();
+}
+// 動画は、Wake Lock が効かなかったときの予備。動画が動くと音の経路が乱れる機種があるので、
+// Wake Lock が効いているときは流さない
+const keepAwakeVideo = (() => {
+    const v = document.createElement("video");
+    v.setAttribute("playsinline", ""); v.setAttribute("muted", ""); v.muted = true;
+    v.setAttribute("title", "keep awake");
+    v.style.cssText = "position:fixed;left:0;top:0;width:1px;height:1px;opacity:0.01;pointer-events:none;";
+    [["webm", "data:video/webm;base64,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"], ["mp4", "data:video/mp4;base64,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"]].forEach(([t, src]) => {
+        const so = document.createElement("source"); so.type = "video/" + t; so.src = src; v.appendChild(so);
+    });
+    v.addEventListener("loadedmetadata", () => {
+        if (v.duration <= 1) v.loop = true;
+        else v.addEventListener("timeupdate", () => { if (v.currentTime > 0.5) v.currentTime = Math.random(); });
+    });
+    document.body.appendChild(v);
+    return v;
+})();
+function keepAwake(){
+    if (NATIVE) { keepAwakeState = "APP"; return; }   // アプリが画面を消さないようにしている
+    requestWakeLock().then(() => {
+        if (wakeLock) {
+            if (!keepAwakeVideo.paused) keepAwakeVideo.pause();
+            videoAwake = false; updateAwakeState();
+            return;
+        }
+        keepAwakeVideo.play().then(() => {
+            videoAwake = true; updateAwakeState();
+        }).catch(() => {
+            videoAwake = false; updateAwakeState();
+        });
+    });
+}
+// 画面に触れたとき、POWER ON のとき、裏から戻ったときに、毎回頼み直す
+document.addEventListener('pointerdown', keepAwake);
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') keepAwake();
+});
+
+// ===== VUの文字盤 (針の角度・軸・目盛りの位置は実機に合わせてある。見た目は独自) =====
+const VU_W = 280, VU_H = 145;
+// 校正: 1kHz の正弦波を -20dBFS で入れたとき、ちょうど 0VU を指すようにする値
+// (正弦波の絶対値の平均は ピーク×2/π。-20dBFS = ピーク0.1 → 20log10(1 / (0.1×2/π)) = 23.92)
+const VU_CAL = 20 * Math.log10(1 / (0.1 * 2 / Math.PI));
+const CX = 140, CY = 181;                 // 針の軸。窓の下端より31px下
+const START_DEG = 133, END_DEG = 47;      // 針が振れる範囲 (水平から測って左右とも47度)
+const VU_ARC_R = 140;                     // 振り切り位置での、針の軸から弧までの距離
+const VU_ARC_DROP = 30;                   // 弧の中心を、針の軸からどれだけ下げるか。大きいほど平たい (0で同心円)
+const VU_LABEL_GAP = 26;                  // 弧から数字までの距離
+
+// 各目盛りが、振れ幅全体のどこにあるか (0 = 音なしの位置、1 = +3)。写真から測った値
+const VU_SCALE = [
+    [-20, 0.030], [-10, 0.135], [-7, 0.222], [-5, 0.303], [-3, 0.418], [-2, 0.489],
+    [-1, 0.567], [0, 0.654], [1, 0.765], [2, 0.888], [3, 1.000]
+];
+// 電圧 → 振れ幅。目盛りと目盛りの間は直線でつなぐ
+const VU_PTS = [[0, 0]].concat(VU_SCALE.map(m => [Math.pow(10, m[0] / 20), m[1]]));
+function vuFrac(v){
+    if (!(v > 0)) return 0;
+    for (let i = 1; i < VU_PTS.length; i++) {
+        if (v <= VU_PTS[i][0]) {
+            const a = VU_PTS[i - 1], b = VU_PTS[i];
+            return a[1] + (b[1] - a[1]) * (v - a[0]) / (b[0] - a[0]);
+        }
+    }
+    return 1;
+}
+function dbToAngle(db){
+    return START_DEG + vuFrac(Math.pow(10, db / 20)) * (END_DEG - START_DEG);
+}
+
+// 弧の形。両端 (振り切りの位置) は軸から VU_ARC_R の場所を通り、中心は軸の VU_ARC_DROP 下にある
+const VU_ARC_RAD = (() => {
+    const a = START_DEG * Math.PI / 180;
+    return Math.hypot(Math.cos(a) * VU_ARC_R, Math.sin(a) * VU_ARC_R + VU_ARC_DROP);
+})();
+// 針の軸から、deg の方向に進んで弧に当たるまでの距離
+function vuArcDist(deg){
+    const s = Math.sin(deg * Math.PI / 180);
+    return -VU_ARC_DROP * s + Math.sqrt(VU_ARC_RAD * VU_ARC_RAD - VU_ARC_DROP * VU_ARC_DROP * (1 - s * s));
+}
+
+function drawVUBase(canvasId) {
+    const ctx = document.getElementById(canvasId).getContext("2d");
+    ctx.clearRect(0, 0, VU_W, VU_H);
+    const BLACK = "#222", RED = "#d00", SOFT = "#9a9a90";
+    const rad = deg => -deg * Math.PI / 180;
+    // 針の軸から deg の方向へ、弧から extra だけ外 (マイナスなら内) の点
+    const pt = (deg, extra) => {
+        const r = vuArcDist(deg) + extra;
+        return [CX + Math.cos(rad(deg)) * r, CY + Math.sin(rad(deg)) * r];
+    };
+    const arcLine = (fromDeg, toDeg, extra, color, width) => {
+        ctx.beginPath();
+        const n = 80;
+        for (let i = 0; i <= n; i++) {
+            const d = fromDeg + (toDeg - fromDeg) * i / n;
+            const q = pt(d, extra);
+            if (i === 0) ctx.moveTo(q[0], q[1]); else ctx.lineTo(q[0], q[1]);
+        }
+        ctx.strokeStyle = color; ctx.lineWidth = width; ctx.stroke();
+    };
+
+    // 弧。音なしの位置〜0 は黒の細い線、0〜+3 は赤い帯
+    arcLine(START_DEG, dbToAngle(0), 0, BLACK, 1.5);
+    arcLine(dbToAngle(0), dbToAngle(3), 2.5, RED, 5);
+
+    // 目盛りと数字
+    ctx.font = "bold 15px Arial"; ctx.textAlign = "center";
+    VU_SCALE.forEach(m => {
+        const v = m[0], deg = dbToAngle(v), color = v >= 0 ? RED : BLACK;
+        const a = pt(deg, 0), b = pt(deg, v >= 0 ? 13 : 10);
+        ctx.beginPath(); ctx.strokeStyle = color; ctx.lineWidth = 2.2;
+        ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+        const txt = String(Math.abs(v));
+        const t = pt(deg, VU_LABEL_GAP);
+        const half = ctx.measureText(txt).width / 2;
+        ctx.fillStyle = color;
+        ctx.fillText(txt, Math.max(4 + half, Math.min(VU_W - 4 - half, t[0])), t[1] + 5);
+    });
+
+    // 弧の内側のパーセント目盛り (100% = 0VU)。目立たない色で控えめに
+    ctx.font = "8px Arial"; ctx.fillStyle = SOFT;
+    [0, 20, 40, 60, 80, 100].forEach(pc => {
+        const deg = START_DEG + vuFrac(pc / 100) * (END_DEG - START_DEG);
+        const d = pt(deg, -5);
+        ctx.beginPath(); ctx.arc(d[0], d[1], 0.9, 0, Math.PI * 2); ctx.fill();
+        const t = pt(deg, -14);
+        ctx.fillText(pc === 100 ? "100%" : String(pc), t[0], t[1] + 3);
+    });
+
+    // − と ＋ と VU
+    ctx.font = "bold 13px Arial";
+    let t = pt(dbToAngle(-20), -24); ctx.fillStyle = BLACK; ctx.fillText("−", t[0] + 6, t[1] + 6);
+    t = pt(dbToAngle(3), -24);       ctx.fillStyle = RED;   ctx.fillText("+", t[0] - 6, t[1] + 6);
+    ctx.font = "bold 18px Arial"; ctx.fillStyle = BLACK;
+    ctx.fillText("VU", CX, VU_H - 14);
+}
+drawVUBase("cvsL"); drawVUBase("cvsR");
+
+// ===== 入力レベル =====
+// 左のスライダー: L と R の両方に効く。右のスライダー: R だけ。
+// 左を動かすと、右も同じだけ一緒に動く。右だけを動かすと、R だけが変わる
+let gainLdB = 0, gainRdB = 0, gainROffset = 0;
+let inGainL = null, inGainR = null;     // 電源ON中だけ入る
+const sliderDb = (c, f) => (parseFloat(document.getElementById(c).value) - 20) + parseFloat(document.getElementById(f).value);
+function setRSliders(db){
+    db = Math.max(-21, Math.min(21, db));
+    const c = Math.max(-20, Math.min(20, Math.round(db)));
+    const f = Math.max(-1, Math.min(1, Math.round((db - c) * 10) / 10));
+    document.getElementById("vuGainCoarseR").value = c + 20;
+    document.getElementById("vuGainFineR").value = f;
+}
+function applyGains(){
+    if (NATIVE) NativeAudio.setGains(gainLdB, gainRdB);   // アプリが計算するVUにも同じレベルを
+    if (inGainL) inGainL.gain.value = Math.pow(10, gainLdB / 20);
+    if (inGainR) inGainR.gain.value = Math.pow(10, gainRdB / 20);
+}
+function onMainGain(){
+    gainLdB = sliderDb("vuGainCoarse", "vuGainFine");
+    setRSliders(gainLdB + gainROffset);
+    gainRdB = sliderDb("vuGainCoarseR", "vuGainFineR");
+    applyGains();
+}
+function onRGain(){
+    gainRdB = sliderDb("vuGainCoarseR", "vuGainFineR");
+    gainROffset = gainRdB - gainLdB;
+    applyGains();
+}
+["vuGainCoarse", "vuGainFine"].forEach(id => document.getElementById(id).addEventListener("input", onMainGain));
+["vuGainCoarseR", "vuGainFineR"].forEach(id => document.getElementById(id).addEventListener("input", onRGain));
+onMainGain();
+
+// ===== 入力モード =====
+// STEREO: 入ってきたとおりに表示する。入力が1chなら、Rは無音のまま表示する
+// MONO  : 入力の1ch目を、LとRの両方に入れる (自分で選んだときだけ)
+// 開いたときは必ず LR (ステレオ) から始める。LL のまま開いて R の無音を見落とさないように
+let inputMode = "stereo";
+let applyInputRoute = null;   // 電源ON中だけ、配線をつなぎ直す関数が入る
+function setInputMode(mode){
+    inputMode = mode;
+    if (NATIVE) NativeAudio.setMono(mode === "mono");
+    document.getElementById("modeStereo").classList.toggle("on", mode === "stereo");
+    document.getElementById("modeMono").classList.toggle("on", mode === "mono");
+    if (applyInputRoute) applyInputRoute();
+}
+document.getElementById("modeStereo").onclick = () => setInputMode("stereo");
+document.getElementById("modeMono").onclick = () => setInputMode("mono");
+setInputMode(inputMode);
+
+const micSelect = document.getElementById('micSelect');
+const btn = document.getElementById("btn");
+let audioCtx, stream, currentL = START_DEG, currentR = START_DEG;
+// ===== ラウドネス設定 =====
+const LOUD_TARGET = -24;            // 目標 (LKFS)。バーと履歴グラフに線を引く
+const LOUD_MIN = -50;               // バーと履歴グラフの下端 (LKFS)
+const LOUD_MAX = -10;               // バーと履歴グラフの上端 (LKFS)
+const LOUD_BAR_SEC = 3;              // 履歴グラフのバー1本の秒数
+const LOUD_HIST_MIN = 12;            // 履歴グラフ全体の長さ (分)
+const LOUD_HIST_BARS = LOUD_HIST_MIN * 60 / LOUD_BAR_SEC;   // バーの本数
+
+// 色の変わり目 [LKFS, [R,G,B]]。バーの高さ方向のグラデーションになる
+// いちばん下の色は、それより下ぜんぶに使う
+const LOUD_COLORS = [
+    [-49, [ 45, 125, 150]],   // 緑よりの青 (ここから下はこの色)
+    [-43, [ 55, 165,  95]],   // 緑
+    [-35, [ 85, 175,  85]],   // 緑 (ここまで緑を保つ)
+    [-28, [150, 195,  60]],   // 黄緑
+    [-24, [232, 202,  45]],   // 黄 (目標のあたり)
+    [-19, [236, 170,  45]],   // 黄よりのオレンジ
+    [-14, [222,  58,  42]]    // 赤 (ここから上は赤)
+];
+
+// 色の変わり目を、表示範囲の中の位置(0〜1)に直す
+function loudStops(){
+    return LOUD_COLORS.map(c => [
+        Math.max(0, Math.min(1, (c[0] - LOUD_MIN) / (LOUD_MAX - LOUD_MIN))),
+        `rgb(${c[1]})`
+    ]);
+}
+
+// K特性フィルター (ITU-R BS.1770)。サンプルレートに合わせて係数を作る
+class LoudBiquad {
+    constructor(b, a){
+        this.b0 = b[0]; this.b1 = b[1]; this.b2 = b[2];
+        this.a1 = a[0]; this.a2 = a[1];
+        this.x1 = this.x2 = this.y1 = this.y2 = 0;
+    }
+    run(x){
+        const y = this.b0 * x + this.b1 * this.x1 + this.b2 * this.x2
+                - this.a1 * this.y1 - this.a2 * this.y2;
+        this.x2 = this.x1; this.x1 = x;
+        this.y2 = this.y1; this.y1 = y;
+        return y;
+    }
+}
+
+function makeKWeight(rate){
+    // 高域シェルフ
+    let K = Math.tan(Math.PI * 1681.974450955533 / rate);
+    let Q = 0.7071752369554196;
+    const Vh = Math.pow(10, 3.999843853973347 / 20);
+    const Vb = Math.pow(Vh, 0.4996667741545416);
+    let a0 = 1 + K / Q + K * K;
+    const shelf = {
+        b: [(Vh + Vb * K / Q + K * K) / a0, 2 * (K * K - Vh) / a0, (Vh - Vb * K / Q + K * K) / a0],
+        a: [2 * (K * K - 1) / a0, (1 - K / Q + K * K) / a0]
+    };
+    // 低域カット
+    K = Math.tan(Math.PI * 38.13547087602444 / rate);
+    Q = 0.5003270373238773;
+    a0 = 1 + K / Q + K * K;
+    const hp = {
+        b: [1, -2, 1],
+        a: [2 * (K * K - 1) / a0, (1 - K / Q + K * K) / a0]
+    };
+    return { shelf, hp };
+}
+
+function toLkfs(e){
+    return e > 0 ? -0.691 + 10 * Math.log10(e) : -120;
+}
+
+let loudM = -120, loudS = -120;     // いまのM / S
+let loudI = null;                   // 積算値 (STARTを押すまで null)
+let loudRun = false;                // 積算中かどうか
+let loudRunBlocks = 0;
+const loudRing = [];                // 10msごとのパワー。直近3秒分だけ持つ
+const loudHist = [];                // 履歴グラフ用。確定したバーの値だけ持つ
+let loudHistCnt = 0;                // 進行中のバーが何個ぶんの100msを数えたか
+let loudDirty = true;               // 履歴グラフを描き直す必要があるか
+
+// 文字が変わったときだけ画面を書き換える (毎回書き換えると無駄に重い)
+const textCache = {};
+function setText(id, str){
+    const c = textCache[id] || (textCache[id] = { el: document.getElementById(id), last: null });
+    if (c.last !== str) { c.last = str; c.el.innerText = str; }
+}
+
+// 積算用のレベル別集計表 (-70 〜 +10 LKFS を 0.1 刻み)。大きさは固定
+const GATE_BINS = 800;
+const gateCnt = new Float64Array(GATE_BINS);
+const gateSum = new Float64Array(GATE_BINS);
+
+function loudReset(){
+    gateCnt.fill(0);
+    gateSum.fill(0);
+    loudI = null;
+    loudRunBlocks = 0;
+    tpMaxLin = 0;
+}
+
+// TP-BEGIN
+// ===== トゥルーピーク (ITU-R BS.1770 の考え方: 4倍に細かくして、点と点の間の山まで見る) =====
+const TP_HOLD_SEC = 10;      // 「直近」の最大値を残す秒数
+const TP_WARN = -1;          // これを超えたら数字の色を変える (dBTP)
+const TP_OS = 4, TP_TAPS = 12;   // 4倍に細かくする。1相あたり12タップ
+
+// 補間フィルター (窓つきsinc)。4つの相に分けて持つ
+const TP_PHASES = (() => {
+    const N = TP_OS * TP_TAPS, beta = 5.0, fc = 0.92;
+    const i0 = x => { let s = 1, t = 1; for (let k = 1; k < 30; k++) { t *= (x / (2 * k)) ** 2; s += t; } return s; };
+    const h = [];
+    for (let n = 0; n < N; n++) {
+        const t = (n - N / 2) / TP_OS;
+        const sinc = t === 0 ? 1 : Math.sin(Math.PI * fc * t) / (Math.PI * fc * t);
+        const r = (n - N / 2) / (N / 2);
+        const w = Math.abs(r) <= 1 ? i0(beta * Math.sqrt(1 - r * r)) / i0(beta) : 0;
+        h.push(fc * sinc * w);
+    }
+    const ph = [];
+    for (let p = 0; p < TP_OS; p++) {
+        const c = new Float64Array(TP_TAPS);
+        let s = 0;
+        for (let j = 0; j < TP_TAPS; j++) { c[j] = h[p + TP_OS * j]; s += c[j]; }
+        for (let j = 0; j < TP_TAPS; j++) c[j] /= s;    // 直流の利得を1にそろえる
+        ph.push(c);
+    }
+    return ph;
+})();
+
+// 直近の音を覚えておく箱 (左右それぞれ)
+function tpMakeState(){ return { buf: new Float64Array(TP_TAPS * 2), pos: 0 }; }
+let tpStL = tpMakeState(), tpStR = tpMakeState();
+
+// 1チャンネルぶんの音を流して、細かくした波の最大値(絶対値)を返す
+function tpRun(st, x){
+    const buf = st.buf, T = TP_TAPS;
+    let pos = st.pos, peak = 0;
+    for (let i = 0; i < x.length; i++) {
+        const v = x[i];
+        buf[pos] = v; buf[pos + T] = v;          // 2重に持って、折り返しの計算を省く
+        pos = (pos + 1) % T;
+        for (let p = 0; p < TP_OS; p++) {
+            const c = TP_PHASES[p];
+            let acc = 0;
+            for (let j = 0; j < T; j++) acc += c[j] * buf[pos + T - 1 - j];
+            const a = acc < 0 ? -acc : acc;
+            if (a > peak) peak = a;
+        }
+    }
+    st.pos = pos;
+    return peak;
+}
+
+const tpRecent = [];      // [時刻, 最大値] を直近 TP_HOLD_SEC 秒ぶん
+let tpMaxLin = 0;         // STARTからの最大値 (RESETで0)
+
+function tpFeed(L, R, now, running){
+    const pk = Math.max(tpRun(tpStL, L), tpRun(tpStR, R));
+    tpRecent.push([now, pk]);
+    while (tpRecent.length && tpRecent[0][0] < now - TP_HOLD_SEC) tpRecent.shift();
+    if (running && pk > tpMaxLin) tpMaxLin = pk;
+}
+function tpRecentLin(){
+    let m = 0;
+    for (const e of tpRecent) if (e[1] > m) m = e[1];
+    return m;
+}
+const tpDb = lin => lin > 1e-6 ? 20 * Math.log10(lin) : -Infinity;
+// TP-END
+
+// 400msブロックを1個、積算に加える
+function loudAddBlock(e){
+    const l = toLkfs(e);
+    if (l <= -70) return;                               // 絶対ゲート
+    const idx = Math.min(GATE_BINS - 1, Math.floor((l + 70) * 10));
+    gateCnt[idx]++;
+    gateSum[idx] += e;
+
+    let n = 0, s = 0;
+    for (let i = 0; i < GATE_BINS; i++) { n += gateCnt[i]; s += gateSum[i]; }
+    if (!n) return;
+
+    const rel = toLkfs(s / n) - 10;                     // 相対ゲート
+    const from = Math.max(0, Math.ceil((rel + 70) * 10 - 1e-9));
+    n = 0; s = 0;
+    for (let i = from; i < GATE_BINS; i++) { n += gateCnt[i]; s += gateSum[i]; }
+    if (n) loudI = toLkfs(s / n);
+}
+
+// 10msぶんのパワー(L+R)を受け取る。
+// M (400ms) と S (3秒) は10msごとに更新する (短い音の山を取りこぼさないように)。
+// 積算のゲートは規格どおり、400msのブロックを100msごとに作る
+let loudTick = 0;      // 10msの数え (10回で100ms)
+function loudPush(e){
+    loudRing.push(e);
+    if (loudRing.length > 300) loudRing.shift();
+
+    const len = loudRing.length;
+    let s40 = 0, s300 = 0;
+    for (let i = 0; i < len; i++) {
+        s300 += loudRing[i];
+        if (i >= len - 40) s40 += loudRing[i];
+    }
+    loudM = toLkfs(s40 / Math.min(40, len));
+    loudS = toLkfs(s300 / len);
+    loudDirty = true;
+
+    if (++loudTick < 10) return;            // ここから下は100msごと
+    loudTick = 0;
+
+    // 3秒たったら、その3秒ぶんの値をバー1本として確定する
+    if (++loudHistCnt >= LOUD_BAR_SEC * 10) {
+        loudHistCnt = 0;
+        loudHist.push(loudS);
+        if (loudHist.length > LOUD_HIST_BARS - 1) loudHist.shift();
+    }
+
+    if (loudRun && ++loudRunBlocks >= 4) loudAddBlock(s40 / Math.min(40, len));
+}
+
+// 履歴グラフ (RTAの枠に描く)
+let rtaMode = "rta";
+
+function drawLoudHistory(){
+    const cv = document.getElementById("rtaCanvas");
+    const g = cv.getContext("2d");
+    const pitch = 3;     // 3秒ぶんの横幅(px)
+    const x1 = cv.width - 10, x0 = x1 - LOUD_HIST_BARS * pitch;
+    const yTop = 10, yBot = 220;
+    const yOf = v => yBot - (v - LOUD_MIN) / (LOUD_MAX - LOUD_MIN) * (yBot - yTop);
+
+    g.fillStyle = "#050505";
+    g.fillRect(0, 0, cv.width, cv.height);
+
+    g.font = "12px sans-serif";
+    g.lineWidth = 1;
+    g.textAlign = "right";
+    for (let v = LOUD_MIN; v <= LOUD_MAX; v += 10) {
+        g.strokeStyle = "rgba(255,255,255,0.12)";
+        g.beginPath(); g.moveTo(x0, yOf(v)); g.lineTo(x1, yOf(v)); g.stroke();
+        g.fillStyle = "#aaa";
+        g.fillText(v, x0 - 6, yOf(v) + 4);
+    }
+
+    const grad = g.createLinearGradient(0, yBot, 0, yTop);
+    loudStops().forEach(st => grad.addColorStop(st[0], st[1]));
+    g.fillStyle = grad;
+
+    // 3秒ごとの値を点にして、なめらかな曲線でつなぎ、その下を塗る
+    // 右端が進行中の値 (リアルタイム)。左へ行くほど古い
+    const vals = loudHist.concat([loudS]);
+    const pts = vals.map((v, k) => ({
+        x: x1 - (vals.length - 1 - k + 0.5) * pitch,
+        y: yOf(Math.max(LOUD_MIN, Math.min(LOUD_MAX, v)))
+    }));
+    g.beginPath();
+    g.moveTo(pts[0].x, yBot);
+    g.lineTo(pts[0].x, pts[0].y);
+    for (let k = 1; k < pts.length; k++) {
+        // 点と点の中間を通る曲線にすると、角が立たない
+        const mx = (pts[k - 1].x + pts[k].x) / 2;
+        const my = (pts[k - 1].y + pts[k].y) / 2;
+        g.quadraticCurveTo(pts[k - 1].x, pts[k - 1].y, mx, my);
+    }
+    const last = pts[pts.length - 1];
+    g.lineTo(last.x, last.y);
+    g.lineTo(x1, last.y);
+    g.lineTo(x1, yBot);
+    g.closePath();
+    g.fill();
+
+    // 目標の線
+    g.strokeStyle = "rgba(255,255,255,0.8)";
+    g.beginPath(); g.moveTo(x0, yOf(LOUD_TARGET)); g.lineTo(x1, yOf(LOUD_TARGET)); g.stroke();
+    g.fillStyle = "#fff";
+    g.fillText(LOUD_TARGET, x0 - 6, yOf(LOUD_TARGET) + 4);
+
+    g.fillStyle = "#aaa";
+    g.textAlign = "center";
+    for (let m = 0; m <= LOUD_HIST_MIN; m += 3) {
+        g.fillText(m === 0 ? "0" : "-" + m + "分",
+            x1 - m * 60 / LOUD_BAR_SEC * pitch, 245);
+    }
+}
+
+// RTA / LOUDNESS の切り替え。選んでいるほうのボタンが光る
+function setRtaMode(mode){
+    rtaMode = mode;
+    document.getElementById("tabRta").classList.toggle("on", mode === "rta");
+    document.getElementById("tabLoud").classList.toggle("on", mode === "loud");
+    loudDirty = true;
+    if (mode === "loud") {
+        drawLoudHistory();
+    } else if (!audioCtx) {
+        const cv = document.getElementById("rtaCanvas");
+        cv.getContext("2d").clearRect(0, 0, cv.width, cv.height);
+    }
+}
+document.getElementById("tabRta").onclick = () => setRtaMode("rta");
+document.getElementById("tabLoud").onclick = () => setRtaMode("loud");
+
+// M/Sバーの色。枠の高さに固定したグラデーションを、バーの高さぶんだけ見せる
+["barM", "barS"].forEach(id => {
+    const el = document.getElementById(id);
+    el.style.background =
+        "linear-gradient(to top, " +
+        loudStops().map(st => st[1] + " " + (st[0] * 100) + "%").join(", ") +
+        ") bottom / 100% " + el.parentElement.style.height + " no-repeat";
+});
+
+// バーの目標線の位置
+document.querySelectorAll(".loudTgt").forEach(el => {
+    el.style.bottom =
+        (LOUD_TARGET - LOUD_MIN) / (LOUD_MAX - LOUD_MIN) * 100 + "%";
+});
+
+// START / STOP / RESET
+document.getElementById("lkfsStart").onclick = () => {
+    loudRun = !loudRun;
+    loudRunBlocks = 0;
+    document.getElementById("lkfsStart").innerText = loudRun ? "STOP" : "START";
+    document.getElementById("lkfsStart").classList.toggle("on", loudRun);
+};
+document.getElementById("lkfsReset").onclick = loudReset;
+
+
+async function getDevices() {
+    if (NATIVE) {
+        micSelect.innerHTML = '';
+        JSON.parse(NativeAudio.devices()).forEach(d => {
+            const opt = document.createElement('option');
+            opt.value = d.id; opt.text = d.name;
+            micSelect.appendChild(opt);
+        });
+        return;
+    }
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    micSelect.innerHTML = '';
+    devices.filter(d => d.kind === 'audioinput').forEach(d => {
+        const opt = document.createElement('option');
+        opt.value = d.deviceId;
+        opt.text = d.label || `Microphone ${micSelect.length + 1}`;
+        micSelect.appendChild(opt);
+    });
+}
+
+if (NATIVE) getDevices();
+else navigator.mediaDevices.getUserMedia({ audio: true }).then(s => {
+    s.getTracks().forEach(t => t.stop());
+    getDevices();
+});
+
+btn.onclick = async () => {
+    if (audioCtx) { if (NATIVE) NativeAudio.stop(); applyInputRoute = null; inGainL = inGainR = null; audioCtx.close(); audioCtx = null; btn.innerText = "POWER OFF"; btn.classList.remove("on"); return; }
+    
+    // 遅れをできるだけ小さくするよう、ブラウザに要求する (聞いてくれるかは機種しだい)
+    const AC = window.AudioContext || window.webkitAudioContext;
+    // アドレスの最後に ?sr=96000 のように付けると、その周波数で動かす (入力機器と合わせて変換をなくす実験用)
+    const srWant = parseInt(new URLSearchParams(location.search).get("sr"), 10);
+    const acOpt = { latencyHint: 0 };
+    if (srWant >= 8000 && srWant <= 192000) acOpt.sampleRate = srWant;
+    // アプリの中: 先に入力を開いて、その周波数でメーターを動かす
+    let nativeInfo = null;
+    if (NATIVE) {
+        nativeInfo = JSON.parse(NativeAudio.start(parseInt(micSelect.value, 10) || 0));
+        if (!nativeInfo.ok) { setText("latVal", "入力を開けませんでした: " + nativeInfo.err); return; }
+        acOpt.sampleRate = nativeInfo.sr;
+    }
+    try { audioCtx = new AC(acOpt); } catch (e) { try { audioCtx = new AC({ latencyHint: 0 }); } catch (e2) { audioCtx = new AC(); } }
+    
+    const constraints = { 
+        audio: { 
+            deviceId: micSelect.value ? { exact: micSelect.value } : undefined,
+            channelCount: { exact: 2 }, 
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false,
+            latency: { ideal: 0 }
+        } 
+    };
+    
+    if (NATIVE) {
+        // アプリの中: ブラウザの入力の代わりに、ch数と周波数だけ持った入れ物を使う
+        const st = { channelCount: nativeInfo.ch, sampleRate: nativeInfo.sr };
+        stream = { getAudioTracks: () => [{ getSettings: () => st, stop(){} }], getTracks: () => [] };
+    } else try {
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+    } catch(e) {
+        console.log("ステレオ強制リトライ");
+        constraints.audio.channelCount = { ideal: 2 };
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+    }
+    
+    btn.innerText = "POWER ON"; btn.classList.add("on");
+    keepAwake();
+
+    // ブラウザが報告している遅れを表示する (報告しないブラウザでは -- になる)
+    const ms = v => (typeof v === "number" && isFinite(v)) ? (v * 1000).toFixed(0) + "ms" : "--";
+    const tr0 = stream.getAudioTracks()[0];
+    const st0 = tr0 && tr0.getSettings ? tr0.getSettings() : {};      // 入力機器の情報は最初に1回だけ
+    const sr0 = audioCtx.sampleRate / 1000;
+    const kHz = v => { const k = v / 1000; return Number.isInteger(k) ? String(k) : k.toFixed(1); };
+    // 入力機器の周波数 > メーターの処理の周波数 (違うときはブラウザが変換している)
+    const devSr = st0.sampleRate ? kHz(st0.sampleRate) + ">" : "";
+ const latHead = NATIVE ? ("APP " + nativeInfo.mode + " / " + kHz(nativeInfo.sr) + "k " + nativeInfo.ch + "ch") :
+        "IN " + ms(st0.latency) + " / " + ms(audioCtx.baseLatency) +
+        " / " + devSr + kHz(audioCtx.sampleRate) + "k " + (st0.channelCount || "?") + "ch";
+    const showLatency = () => {
+        if (!audioCtx) return;
+        setText("latVal", latHead + " / " + keepAwakeState);
+    };
+    showLatency();
+    const latTimer = setInterval(() => { if (!audioCtx) clearInterval(latTimer); else showLatency(); }, 2000);
+    
+    // アプリの中: アプリから音を受け取って流す箱。ブラウザ: ふつうの入力
+    const src = NATIVE ? (() => {
+        const N = 512;
+        const sp = audioCtx.createScriptProcessor(N, 0, 2);
+        const prevL = new Float32Array(N), prevR = new Float32Array(N);   // 前回渡した音
+        sp.onaudioprocess = e => {
+            const oL = e.outputBuffer.getChannelData(0), oR = e.outputBuffer.getChannelData(1);
+            const b64 = NativeAudio.pull(N);
+            let n = 0;
+            if (b64) {
+                const bin = atob(b64), u8 = new Uint8Array(bin.length);
+                for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+                const f = new Float32Array(u8.buffer);
+                n = f.length >> 1;
+                for (let i = 0; i < n; i++) { oL[i] = f[2 * i]; oR[i] = f[2 * i + 1]; }
+            }
+            // 音が足りないとき (機器とスマホの時計のずれで、まれに起きる) は、
+            // 直前の波形を折り返して埋める。無音で埋めると段差ができて、TPが高く出るため
+            for (let i = n; i < N; i++) {
+                const j = n - 1 - (i - n);
+                if (j >= 0) { oL[i] = oL[j]; oR[i] = oR[j]; }
+                else if (N + j >= 0) { oL[i] = prevL[N + j]; oR[i] = prevR[N + j]; }
+                else { oL[i] = 0; oR[i] = 0; }
+            }
+            prevL.set(oL); prevR.set(oR);
+        };
+        return sp;
+    })() : audioCtx.createMediaStreamSource(stream);
+    const splitter = audioCtx.createChannelSplitter(2);
+    const anaL = audioCtx.createAnalyser(), anaR = audioCtx.createAnalyser();
+    const gainNode = audioCtx.createGain();
+    const rtaAnalyser = audioCtx.createAnalyser();
+
+// ===== RTA設定 =====
+const RTA_BANDS_PER_OCT = 6;   // 1オクターブあたりのバー数 (3 / 6 / 12)
+const RTA_TOP = 0;             // 表示の上端 (dBFS)
+const RTA_BOTTOM = -80;        // 表示の下端 (dBFS)
+const RTA_ATTACK = 0.05;       // 上がる速さ (秒)
+const RTA_RELEASE = 0.3;       // 下がる速さ (秒)
+const RTA_SPLIT_HZ = 250;      // これより下のバンドは低域用の大きいFFTで測る
+
+rtaAnalyser.fftSize = 8192;            // 高域用（反応が速い）
+rtaAnalyser.smoothingTimeConstant = 0;
+
+const rtaAnalyserLow = audioCtx.createAnalyser();
+rtaAnalyserLow.fftSize = 32768;        // 低域用（周波数が細かい）
+rtaAnalyserLow.smoothingTimeConstant = 0;
+
+const rtaData =
+    new Float32Array(rtaAnalyser.frequencyBinCount);
+
+const rtaDataLow =
+    new Float32Array(rtaAnalyserLow.frequencyBinCount);
+
+const rtaCanvas =
+    document.getElementById("rtaCanvas");
+
+const rtaCtx =
+    rtaCanvas.getContext("2d");
+
+// バンド表（1kHz基準で等間隔に並べる）
+const rtaBandList = [];
+{
+    const n = RTA_BANDS_PER_OCT;
+    const kMin = Math.round(n * Math.log2(20 / 1000));
+    const kMax = Math.round(n * Math.log2(20000 / 1000));
+    const half = Math.pow(2, 1 / (2 * n));
+    for (let k = kMin; k <= kMax; k++) {
+        const fc = 1000 * Math.pow(2, k / n);
+        rtaBandList.push({ fc: fc, f1: fc / half, f2: fc * half, p: 0, raw: 0 });
+    }
+}
+
+// 窓関数(Blackman)の補正。フルスケールのサイン波が -3dBFS(RMS) になる
+const RTA_NORM = 2 / 0.3046;
+
+// f1〜f2 に入るパワーを合算する（端のbinは重なった分だけ足す）
+function rtaBandPower(data, fftSize, f1, f2){
+    const binHz = audioCtx.sampleRate / fftSize;
+    const lo = f1 / binHz, hi = f2 / binHz;
+    const iEnd = Math.min(data.length - 1, Math.floor(hi + 0.5));
+    let p = 0;
+    for (let i = Math.max(1, Math.floor(lo + 0.5)); i <= iEnd; i++) {
+        const w = Math.min(hi, i + 0.5) - Math.max(lo, i - 0.5);
+        if (w > 0) p += Math.pow(10, data[i] / 10) * w;
+    }
+    return p * RTA_NORM;
+}
+
+let rtaLastT = performance.now();
+
+// 解析をやり直す間隔 (ミリ秒)。描画のたびにやる必要はない
+const RTA_HI_MS = 30;     // 高域用：1秒に約30回
+const RTA_LO_MS = 100;    // 低域用：1秒に約10回
+let rtaHiT = 0, rtaLoT = 0;
+    
+    anaL.fftSize = anaR.fftSize = 32768;   // VUは直近約0.7秒(48k)の音から針の位置を計算する
+    // 入力 → (モードに応じて配線) → gainNode。gainNode はいつも 2ch、複製や混ぜ合わせはしない
+    gainNode.channelCount = 2;
+    gainNode.channelCountMode = "explicit";
+    gainNode.channelInterpretation = "discrete";
+    const inSplit = audioCtx.createChannelSplitter(2);
+    const inMerge = audioCtx.createChannelMerger(2);
+    inGainL = audioCtx.createGain();
+    inGainR = audioCtx.createGain();
+    applyGains();
+    src.connect(inSplit);
+    inGainL.connect(inMerge, 0, 0);
+    inGainR.connect(inMerge, 0, 1);
+    inMerge.connect(gainNode);
+    applyInputRoute = () => {
+        try { inSplit.disconnect(); } catch (e) {}
+        const tr = stream.getAudioTracks()[0];
+        const ch = tr && tr.getSettings ? tr.getSettings().channelCount : undefined;
+        inSplit.connect(inGainL, 0);                          // L はいつも 1ch目
+        if (inputMode === "mono") {
+            inSplit.connect(inGainR, 0);                      // LL: 1ch目を R にも
+        } else if (ch !== 1) {
+            inSplit.connect(inGainR, 1);                      // LR: 2ch目を R に
+        }                                                     // LR で入力が1ch: R は無音のまま
+    };
+    applyInputRoute();
+gainNode.gain.value = 1;
+
+gainNode.connect(splitter);
+gainNode.connect(rtaAnalyser);
+gainNode.connect(rtaAnalyserLow);
+
+// ===== ラウドネス測定 (VU GAINのあとの信号で測る) =====
+const kw = makeKWeight(audioCtx.sampleRate);
+const kShL = new LoudBiquad(kw.shelf.b, kw.shelf.a), kShR = new LoudBiquad(kw.shelf.b, kw.shelf.a);
+const kHpL = new LoudBiquad(kw.hp.b, kw.hp.a),       kHpR = new LoudBiquad(kw.hp.b, kw.hp.a);
+const loudSubN = Math.round(audioCtx.sampleRate * 0.01);  // 10ms
+let loudSubSum = 0, loudSubCnt = 0;
+loudRing.length = 0;
+loudTick = 0;
+loudRunBlocks = 0;
+
+const loudProc = audioCtx.createScriptProcessor(2048, 2, 1);
+loudProc.channelInterpretation = "discrete";   // モノラル入力はLだけに入れる(VUと同じ扱い)
+loudProc.onaudioprocess = e => {
+    const L = e.inputBuffer.getChannelData(0);
+    const R = e.inputBuffer.getChannelData(1);
+    tpFeed(L, R, audioCtx.currentTime, loudRun);   // トゥルーピーク
+    for (let i = 0; i < L.length; i++) {
+        const l = kHpL.run(kShL.run(L[i]));
+        const r = kHpR.run(kShR.run(R[i]));
+        loudSubSum += l * l + r * r;
+        if (++loudSubCnt >= loudSubN) {
+            loudPush(loudSubSum / loudSubCnt);
+            loudSubSum = 0;
+            loudSubCnt = 0;
+        }
+    }
+};
+gainNode.connect(loudProc);
+loudProc.connect(audioCtx.destination);   // 動かすためにつなぐ。音は出さない
+    splitter.connect(anaL, 0); splitter.connect(anaR, 1);
+
+    // ===== フェーズスコープ用 =====
+    // 音の経路の中で先に L+R (縦) と R-L (横) を作ってから読む。
+    // L と R が同じなら R-L は必ず 0 になるので、モノラルが一瞬広がって見えることがない
+    const SCOPE_POINTS = 1024;  // 1回に打つ点の数 (音のサンプル1個につき1点)
+    const SCOPE_DOT = 1;        // 点の大きさ (px)。画面のピクセルにそろえて打つので、モノラルは細い1本の線になる
+    const SCOPE_DOT_ALPHA = 0.5;// いちばん明るいところの濃さ (0〜1)。重なった場所ほど明るくなる
+    const SCOPE_BEAM_LEN = 1.5; // この長さ(px)より長く動いた線ほど暗くする。大きくすると全体が線っぽく明るくなる
+    const SCOPE_FPS = 60;       // 1秒に描く回数
+    const SCOPE_SCALE = 160;    // 倍率x1.0のときの大きさ (以前は40。4倍にした)
+    const SCOPE_FADE = 0.18;    // 残像の消える速さ (大きいほど速く消える)
+    const scopeMid = audioCtx.createGain(), scopeSide = audioCtx.createGain();
+    const scopeInvL = audioCtx.createGain();
+    scopeInvL.gain.value = -1;
+    splitter.connect(scopeMid, 0);  splitter.connect(scopeMid, 1);     // L + R
+    splitter.connect(scopeSide, 1); splitter.connect(scopeInvL, 0);    // R - L
+    scopeInvL.connect(scopeSide);
+    const anaMid = audioCtx.createAnalyser(), anaSide = audioCtx.createAnalyser();
+    anaMid.fftSize = anaSide.fftSize = 1024;
+    scopeMid.connect(anaMid); scopeSide.connect(anaSide);
+    const bufMid = new Float32Array(1024), bufSide = new Float32Array(1024);
+    let scopeLastT = 0;
+
+    const bufL = new Float32Array(32768), bufR = new Float32Array(32768);
+    const VU_SNAP = 1024;                     // 基準の画面で、1回の描画ごとに使うサンプル数
+
+    const scopeCtx = document.getElementById("cvsScope").getContext("2d");
+    
+    const vuWin = Math.floor(audioCtx.sampleRate * 0.135);
+
+    // VUの平均。直近 vuWin 個の平均を、出入りした分だけ足し引きして求める
+    const makeVuAvg = () => ({ buf: new Float32Array(vuWin), pos: 0, n: 0, sum: 0, tick: 0 });
+    const vuAvgL = makeVuAvg(), vuAvgR = makeVuAvg();
+    function vuAvgPush(a, src, count){
+        for (let i = src.length - count; i < src.length; i++) {
+            if (a.n < vuWin) a.n++; else a.sum -= a.buf[a.pos];
+            a.buf[a.pos] = Math.abs(src[i]);
+            a.sum += a.buf[a.pos];
+            if (++a.pos >= vuWin) a.pos = 0;
+        }
+        // ときどき足し直して、細かい誤差がたまらないようにする
+        if (++a.tick >= 600) {
+            a.tick = 0;
+            let t = 0;
+            for (let i = 0; i < a.n; i++) t += a.buf[i];
+            a.sum = t;
+        }
+        return a.n ? Math.max(0, a.sum / a.n) : 0;
+    }
+
+
+    // ===== 針の動きを画面の更新速度に左右されないようにする =====
+    // 60Hzの画面での動きを基準にして、経過時間ぶんだけ進める
+    const VU_REF_FPS = 60;      // 針の動きを合わせ込んだ画面の更新速度
+    const VU_SMOOTH = 0.145;    // 基準の画面で、1回の描画ごとに針が進む割合
+    let vuLastT = null, vuCarry = 0;
+    const MAX_FPS = 60;         // 描画の上限 (1秒あたりの回数)
+
+    // VU-BALLISTIC-BEGIN
+    // ===== 針の動き =====
+    // "standard" = VUの規格どおり (音が入って0.3秒で99%に届き、ごくわずかに行き過ぎて戻る)
+    // "legacy"   = 以前の動き (しゃべりで合わせ込んだもの)
+    const VU_BALLISTIC = "standard";
+    const VU_RISE_MS = 300;     // 99%に届くまでの時間 (ミリ秒)。小さくすると針が速くなる
+    const VU_ZETA = 0.81;       // 行き過ぎの量を決める数字。0.81で約1.3%行き過ぎる。1にすると行き過ぎない
+
+    // 「99%に届く時間」から、針のばねの強さを求める
+    const VU_WN = (() => {
+        const z = VU_ZETA, wd = Math.sqrt(Math.max(1e-9, 1 - z * z));
+        let x = 0;
+        for (; x < 50; x += 0.0005) {
+            const y = 1 - Math.exp(-z * x) * (Math.cos(wd * x) + z / wd * Math.sin(wd * x));
+            if (y >= 0.99) break;
+        }
+        return x / (VU_RISE_MS / 1000);
+    })();
+
+    // 針を、ばねと重りのある実物の針と同じ式で dt 秒ぶん進める。u が目標、st.y が針の位置
+    function vuStep(st, u, dt){
+        const steps = Math.max(1, Math.ceil(dt / 0.001));
+        const h = dt / steps;
+        for (let k = 0; k < steps; k++) {
+            st.v += (VU_WN * VU_WN * (u - st.y) - 2 * VU_ZETA * VU_WN * st.v) * h;
+            st.y += st.v * h;
+        }
+        if (st.y < 0) { st.y = 0; st.v = 0; }
+        return st.y;
+    }
+
+    // buf の新しいほうから n 個の、絶対値の平均
+    function vuMeanAbs(buf, n){
+        let t = 0;
+        for (let i = buf.length - n; i < buf.length; i++) t += Math.abs(buf[i]);
+        return n ? t / n : 0;
+    }
+    const vuStL = { y: 0, v: 0 }, vuStR = { y: 0, v: 0 };
+
+    // 針の位置を、手元にある音(buf)の全部を1ミリ秒ずつ途切れなく式に通して求める。
+    // 描画のたびに区切った短い平均を使うと、低い音(100Hzなど)で針が震えるため。
+    // 出発点は、前回の計算で同じ時刻あたりにいた針の位置と速さを使う
+    const VU_BLK = Math.max(1, Math.round(audioCtx.sampleRate * 0.001));
+    const makeVuTrace = () => ({ y: new Float32Array(40000), v: new Float32Array(40000), n: 0 });
+    const vuTrL = makeVuTrace(), vuTrR = makeVuTrace();
+    function vuNeedle(tr, buf, advSamples){
+        const nb = Math.floor(buf.length / VU_BLK);
+        let i = buf.length - nb * VU_BLK;
+        let y = 0, v = 0;
+        if (tr.n > 0) {
+            const j = Math.min(tr.n - 1, Math.max(0, Math.round(advSamples / VU_BLK) - 1));
+            y = tr.y[j]; v = tr.v[j];
+        }
+        const h = VU_BLK / audioCtx.sampleRate, k1 = VU_WN * VU_WN, k2 = 2 * VU_ZETA * VU_WN;
+        for (let b = 0; b < nb; b++) {
+            let t = 0;
+            for (let j = 0; j < VU_BLK; j++) t += Math.abs(buf[i++]);
+            v += (k1 * (t / VU_BLK - y) - k2 * v) * h;
+            y += v * h;
+            tr.y[b] = y; tr.v[b] = v;
+        }
+        tr.n = nb;
+        return y < 0 ? 0 : y;
+    }
+    // VU-BALLISTIC-END
+
+    function loop(ts) {
+        if (!audioCtx) return;
+
+        const vuNow = ts === undefined ? performance.now() : ts;
+        // 前の描画から時間がたっていなければ、今回は何もしない (120Hzの画面で半分に間引く)
+        if (vuLastT !== null && vuNow - vuLastT < 1000 / MAX_FPS * 0.85) {
+            requestAnimationFrame(loop);
+            return;
+        }
+        // 基準の画面で何回ぶんの描画にあたるか (60Hzなら1)
+        const vuFrames = vuLastT === null ? 1 :
+            Math.max(0, Math.min(6, (vuNow - vuLastT) / 1000 * VU_REF_FPS));
+        vuLastT = vuNow;
+const sG     = parseFloat(document.getElementById("scopeGain").value);
+
+// 表示 (ゲインはスライダーを動かしたときに反映済み)
+const sgn = v => (v >= 0 ? "+" : "") + v.toFixed(1);
+setText("vuVal", sgn(gainLdB) + " dB");
+setText("vuValR", "R " + sgn(gainRdB) + " dB");
+        setText("scopeVal", "x" + sG.toFixed(1));
+
+        if (!NATIVE) { anaL.getFloatTimeDomainData(bufL); anaR.getFloatTimeDomainData(bufR); }
+        
+
+// 平均の箱に入れるサンプル数を、経過時間に比例させる
+vuCarry += VU_SNAP * vuFrames;
+const vuN = Math.min(bufL.length, Math.floor(vuCarry));
+vuCarry -= Math.floor(vuCarry);
+
+
+     
+        
+        if (VU_BALLISTIC === "standard") {
+            // 前の描画からいままでに入ってきた音だけを平均して、針の式に渡す
+            const vuAdv = vuFrames / VU_REF_FPS * audioCtx.sampleRate;   // 前回から進んだサンプル数
+            let lvL, lvR;
+            if (NATIVE) {
+                // アプリの中: 針の位置はアプリが計算した、いちばん新しい値を使う (遅れを小さくするため)
+                const nv = NativeAudio.vu().split(",");
+                lvL = +nv[0]; lvR = +nv[1];
+            } else {
+                lvL = vuNeedle(vuTrL, bufL, vuAdv);
+                lvR = vuNeedle(vuTrR, bufR, vuAdv);
+            }
+            currentL = dbToAngle(Math.max(-200, Math.min(3, 20 * Math.log10(lvL || 0.00001) + VU_CAL)));
+            currentR = dbToAngle(Math.max(-200, Math.min(3, 20 * Math.log10(lvR || 0.00001) + VU_CAL)));
+        } else {
+            const targetL = dbToAngle(Math.max(-200, Math.min(3, 20 * Math.log10(vuAvgPush(vuAvgL, bufL, vuN) || 0.00001) + VU_CAL)));
+            const targetR = dbToAngle(Math.max(-200, Math.min(3, 20 * Math.log10(vuAvgPush(vuAvgR, bufR, vuN) || 0.00001) + VU_CAL)));
+
+            const vuK = 1 - Math.pow(1 - VU_SMOOTH, vuFrames);
+            currentL += (targetL - currentL) * vuK;
+            currentR += (targetR - currentR) * vuK;
+        }
+        
+        document.getElementById("ndlL").style.transform = `rotate(${90-currentL}deg)`;
+        document.getElementById("ndlR").style.transform = `rotate(${90-currentR}deg)`;
+
+        if (vuNow - scopeLastT >= 1000 / SCOPE_FPS * 0.85) {
+            scopeLastT = vuNow;
+            anaMid.getFloatTimeDomainData(bufMid);
+            anaSide.getFloatTimeDomainData(bufSide);
+
+            scopeCtx.setTransform(SCOPE_RES, 0, 0, SCOPE_RES, 0, 0);
+            scopeCtx.fillStyle = "rgba(0, 10, 0, " + SCOPE_FADE + ")"; scopeCtx.fillRect(0, 0, 220, 220);
+            scopeCtx.strokeStyle = "#1a3a1a"; scopeCtx.lineWidth = 1; scopeCtx.beginPath(); scopeCtx.moveTo(110, 0); scopeCtx.lineTo(110, 220); scopeCtx.moveTo(0, 110); scopeCtx.lineTo(220, 110); scopeCtx.stroke();
+            // 光の点が動いた跡のように描く。サンプルとサンプルを短い線でつなぎ、
+            // ゆっくり動いた (短い) 線は明るく、速く動いた (長い) 線は暗くする。
+            // なめらかな音は明るい線に、激しい音は点や細い糸の集まりに見え、真ん中を横切る動きはほとんど光らない
+            const scopeStart = bufMid.length - Math.min(bufMid.length, SCOPE_POINTS);
+            // 点は画面の実ピクセル単位で、ピクセルの境目にそろえて打つ (にじませない)
+            scopeCtx.setTransform(1, 0, 0, 1, 0, 0);
+            const scopeK = sG * SCOPE_SCALE * SCOPE_RES;
+            const scopeC = 110 * SCOPE_RES;
+            const scopeD = Math.max(1, Math.round(SCOPE_DOT * SCOPE_RES));
+            const scopeO = (scopeD % 2) ? 0.5 : 0;           // 線をピクセルの境目にそろえる
+            const beamLen = SCOPE_BEAM_LEN * SCOPE_RES;
+            // 明るさを6段階に分けて、段階ごとにまとめて描く (描く回数を減らすため)
+            const levels = [1, 0.6, 0.36, 0.2, 0.1, 0.05];
+            const paths = levels.map(() => new Path2D());
+            let px = Math.round(scopeC + bufSide[scopeStart] * scopeK) + scopeO;
+            let py = Math.round(scopeC - bufMid[scopeStart] * scopeK) + scopeO;
+            for(let i=scopeStart+1; i<bufMid.length; i++) {
+                const x = Math.round(scopeC + bufSide[i] * scopeK) + scopeO;
+                const y = Math.round(scopeC - bufMid[i] * scopeK) + scopeO;
+                const len = Math.hypot(x - px, y - py);
+                const b = beamLen / Math.max(len, beamLen);   // 短いほど1に近い
+                let k = 0;
+                while (k < levels.length && b < levels[k] * 0.8) k++;
+                if (k < levels.length) {
+                    if (len < 0.5) { paths[k].moveTo(x, y - 0.5); paths[k].lineTo(x, y + 0.5); }   // 止まっている点
+                    else { paths[k].moveTo(px, py); paths[k].lineTo(x, y); }
+                }
+                px = x; py = y;
+            }
+            scopeCtx.lineWidth = scopeD;
+            scopeCtx.lineCap = "butt";
+            levels.forEach((lv, k) => {
+                scopeCtx.strokeStyle = "rgba(0, 255, 102, " + (SCOPE_DOT_ALPHA * lv) + ")";
+                scopeCtx.stroke(paths[k]);
+            });
+        }
+const loudPct = v => Math.max(0, Math.min(100,
+    (v - LOUD_MIN) / (LOUD_MAX - LOUD_MIN) * 100));
+const loudFmt = v => v < -99 ? "--.-" : v.toFixed(1);
+
+const barM = document.getElementById("barM");
+const barS = document.getElementById("barS");
+barM.style.height = loudPct(loudM) + "%";
+barS.style.height = loudPct(loudS) + "%";
+
+setText("lkfsVal", loudI === null ? "--.-" : loudI.toFixed(1));
+setText("mVal", loudFmt(loudM));
+setText("sVal", loudFmt(loudS));
+
+// トゥルーピーク。普段は灰色。-1dBTPを超えたら黄、0dBTPを超えたら赤に寄せる
+const tpShow = (id, lin) => {
+    const db = tpDb(lin);
+    setText(id, db < -70 ? "--.-" : db.toFixed(1));
+    const el = textCache[id].el;
+    const col = db > 0 ? "#c0504d" : db > TP_WARN ? "#c9a227" : "";
+    if (el.style.color !== col) el.style.color = col;
+};
+tpShow("tpRecentVal", tpRecentLin());
+tpShow("tpMaxVal", tpMaxLin);
+
+
+        // ===== RTA描画 =====
+
+if (rtaMode === "loud") {
+    if (loudDirty) { loudDirty = false; drawLoudHistory(); }   // 値が変わったときだけ描く
+    requestAnimationFrame(loop);
+    return;
+}
+
+// 解析は決めた間隔でだけやり直す
+const rtaNow = performance.now();
+const rtaHiNew = rtaNow - rtaHiT >= RTA_HI_MS;
+const rtaLoNew = rtaNow - rtaLoT >= RTA_LO_MS;
+if (rtaHiNew) { rtaHiT = rtaNow; rtaAnalyser.getFloatFrequencyData(rtaData); }
+if (rtaLoNew) { rtaLoT = rtaNow; rtaAnalyserLow.getFloatFrequencyData(rtaDataLow); }
+
+rtaCtx.clearRect(
+    0,
+    0,
+    rtaCanvas.width,
+    rtaCanvas.height
+);
+
+
+// 背景
+rtaCtx.fillStyle = "#050505";
+rtaCtx.fillRect(
+    0,
+    0,
+    rtaCanvas.width,
+    rtaCanvas.height
+);
+
+
+// ガイド線
+// 数字とガイド線はオクターブごと。バーの位置にぴったり合わせる
+const rtaSnap = f => 1000 * Math.pow(2, Math.round(3 * Math.log2(f / 1000)) / 3);
+const rtaLabels = [
+    [20, "20"], [31.5, "31.5"], [63, "63"], [125, "125"], [250, "250"], [500, "500"],
+    [1000, "1k"], [2000, "2k"], [4000, "4k"], [8000, "8k"], [16000, "16k"]
+];
+const guide = rtaLabels.slice(1).map(l => ({ f: rtaSnap(l[0]), strong: l[0] === 1000 }));
+
+function freqX(freq){
+
+    const min = 20;
+    const max = 20000;
+
+    return 30 +
+       Math.log10(freq/min) /
+       Math.log10(max/min) *
+       (rtaCanvas.width - 60);
+}
+
+
+guide.forEach(g=>{
+
+    rtaCtx.beginPath();
+
+    rtaCtx.strokeStyle =
+        g.strong ?
+        "rgba(255,255,255,0.25)" :
+        "rgba(255,255,255,0.12)";
+
+    rtaCtx.moveTo(
+        freqX(g.f),
+        0
+    );
+
+    rtaCtx.lineTo(
+        freqX(g.f),
+        220
+    );
+
+    rtaCtx.stroke();
+
+});
+
+
+// バー描画（バンド内のパワー合算。ピンクノイズで平らになる）
+
+const rtaDt = Math.min(0.1, (rtaNow - rtaLastT) / 1000);
+rtaLastT = rtaNow;
+
+const rtaStep =
+    (rtaCanvas.width - 60) / (Math.log2(1000) * RTA_BANDS_PER_OCT);
+const rtaBarW = Math.max(1, rtaStep * 0.8);
+
+rtaCtx.fillStyle = "#777";
+
+for (const band of rtaBandList) {
+
+    const isLow = band.fc < RTA_SPLIT_HZ;
+    if (isLow ? rtaLoNew : rtaHiNew) {
+        band.raw = isLow ?
+            rtaBandPower(rtaDataLow, rtaAnalyserLow.fftSize, band.f1, band.f2) :
+            rtaBandPower(rtaData, rtaAnalyser.fftSize, band.f1, band.f2);
+    }
+    const p = band.raw;
+
+    // 上がりは速く、下がりはゆっくり（画面の更新速度に左右されない）
+    const tau = p > band.p ? RTA_ATTACK : RTA_RELEASE;
+    band.p += (p - band.p) * (1 - Math.exp(-rtaDt / tau));
+
+    const db = 10 * Math.log10(band.p + 1e-12);
+
+    const h = Math.max(0, Math.min(220,
+        (db - RTA_BOTTOM) / (RTA_TOP - RTA_BOTTOM) * 220));
+
+    rtaCtx.fillRect(
+        freqX(band.fc) - rtaBarW / 2,
+        220 - h,
+        rtaBarW,
+        h
+    );
+}
+
+
+// 周波数表示
+
+rtaCtx.fillStyle="#aaa";
+rtaCtx.font="12px sans-serif";
+rtaCtx.textAlign="center";
+
+
+
+// 1/3オクターブごとの小さい目盛り (オクターブの位置は長め)
+rtaCtx.strokeStyle = "rgba(255,255,255,0.4)";
+rtaCtx.lineWidth = 1;
+rtaCtx.beginPath();
+for (let k = -17; k <= 13; k++) {
+    const x = Math.round(freqX(1000 * Math.pow(2, k / 3))) + 0.5;
+    rtaCtx.moveTo(x, 221);
+    rtaCtx.lineTo(x, k % 3 === 0 ? 229 : 225);
+}
+rtaCtx.stroke();
+
+rtaLabels.forEach(l => {
+    rtaCtx.fillText(l[1], freqX(rtaSnap(l[0])), 245);
+});
+        requestAnimationFrame(loop);
+    }
+    loop();
+};
+</script>
+    </div>
+</body>
+</html>

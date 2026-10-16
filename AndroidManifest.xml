@@ -4,7 +4,7 @@
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
     <application
-        android:label="VU TEST"
+        android:label="VU METER"
         android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
         <activity
             android:name=".MainActivity"
