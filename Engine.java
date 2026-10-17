@@ -30,6 +30,9 @@ public class Engine {
     public volatile int overruns = 0;
     public volatile double gainL = 1, gainR = 1;  // L / R それぞれのレベル (倍率)。VUの計算に使う
     public volatile boolean mono = false;         // true = 1ch目を L と R の両方に使う (HTML版の LL)
+    // 多chのとき、L と R に使う ch (0 から数える)。と、全chのピーク (0〜1、ゆっくり下がる)
+    public volatile int selA = 0, selB = 1;
+    public final float[] chPk = new float[64];
 
     // HTML側に渡す音 (加工前の L, R を交互に並べたもの)。約2.7秒ぶん持てる
     private static final int RING = 1 << 18, MASK = RING - 1;
@@ -98,6 +101,59 @@ public class Engine {
             }
         }
         if (r != 0) return "AAudio エラー " + r;
+        finishNative();
+        return null;
+    }
+
+    // 多chで開く (DM3 など)。まず低遅延モード、だめなら標準。うまくいけば null
+    public String startMulti(AudioDeviceInfo dev, int wantSr, int n) {
+        String why = "";
+        if (NativeAudio.OK) {
+            int id = dev == null ? 0 : dev.getId();
+            for (boolean ex : new boolean[]{true, false}) {
+                for (int pre : new int[]{MediaRecorder.AudioSource.UNPROCESSED, MediaRecorder.AudioSource.VOICE_RECOGNITION}) {
+                    int r = NativeAudio.open(id, wantSr, n, pre, ex);
+                    if (r == 0) { finishNative(); return null; }
+                    why = "AAudio " + r;
+                }
+            }
+        }
+        // 標準: ch を番号で指定して開く
+        int mask = n >= 31 ? 0x7fffffff : (1 << n) - 1;
+        for (int src : new int[]{MediaRecorder.AudioSource.UNPROCESSED, MediaRecorder.AudioSource.VOICE_RECOGNITION, MediaRecorder.AudioSource.MIC}) {
+            for (int enc : new int[]{AudioFormat.ENCODING_PCM_FLOAT, AudioFormat.ENCODING_PCM_16BIT}) {
+                try {
+                    int bytes = (enc == AudioFormat.ENCODING_PCM_FLOAT ? 4 : 2) * n * Math.max(1024, wantSr / 20);
+                    AudioRecord r = new AudioRecord.Builder()
+                            .setAudioSource(src)
+                            .setAudioFormat(new AudioFormat.Builder()
+                                    .setSampleRate(wantSr).setChannelIndexMask(mask).setEncoding(enc).build())
+                            .setBufferSizeInBytes(bytes)
+                            .build();
+                    if (r.getState() != AudioRecord.STATE_INITIALIZED) { r.release(); why += " / 標準 init"; continue; }
+                    if (dev != null) r.setPreferredDevice(dev);
+                    r.startRecording();
+                    if (r.getRecordingState() != AudioRecord.RECORDSTATE_RECORDING) { r.release(); why += " / 標準 start"; continue; }
+                    rec = r;
+                    source = src;
+                    isFloat = enc == AudioFormat.ENCODING_PCM_FLOAT;
+                    ch = r.getChannelCount();
+                    sr = r.getSampleRate();
+                    bufFrames = r.getBufferSizeInFrames();
+                    running = true;
+                    thread = new Thread(this::loop, "audio");
+                    thread.setPriority(Thread.MAX_PRIORITY);
+                    thread.start();
+                    return null;
+                } catch (Exception e) {
+                    why += " / 標準 " + e.getClass().getSimpleName();
+                }
+            }
+        }
+        return why;
+    }
+
+    private void finishNative() {
         nat = true;
         isFloat = true;
         ch = NativeAudio.info(0);
@@ -112,7 +168,6 @@ public class Engine {
         thread = new Thread(this::loop, "audio");
         thread.setPriority(Thread.MAX_PRIORITY);
         thread.start();
-        return null;
     }
 
     public int channels() { return ch; }
@@ -210,11 +265,27 @@ public class Engine {
             }
             final double gl = gainL, gr = gainR;
             final boolean mo = mono;
+            // L と R に使う ch。2ch 以下ならいつもどおり 1ch目と2ch目
+            final int ia = ch > 2 ? Math.max(0, Math.min(ch - 1, selA)) : 0;
+            final int ib = ch > 2 ? Math.max(0, Math.min(ch - 1, selB)) : (ch > 1 ? 1 : -1);
+            if (ch > 2) {
+                // 全chのピーク (一覧表示用)
+                final double dk = Math.pow(10, -20.0 / 20 * frames / (double) sr / 1.5);
+                for (int c = 0; c < ch && c < chPk.length; c++) {
+                    double m = 0;
+                    for (int i = 0; i < frames; i++) {
+                        double v = isFloat ? fb[i * ch + c] : sb[i * ch + c] / 32768.0;
+                        if (v < 0) v = -v;
+                        if (v > m) m = v;
+                    }
+                    chPk[c] = (float) Math.max(m, chPk[c] * dk);
+                }
+            }
             long w = wpos;
             for (int i = 0; i < frames; i++) {
                 double l, r;
-                if (isFloat) { l = fb[i * ch]; r = ch > 1 ? fb[i * ch + 1] : 0; }
-                else { l = sb[i * ch] / 32768.0; r = ch > 1 ? sb[i * ch + 1] / 32768.0 : 0; }
+                if (isFloat) { l = fb[i * ch + ia]; r = ib >= 0 ? fb[i * ch + ib] : 0; }
+                else { l = sb[i * ch + ia] / 32768.0; r = ib >= 0 ? sb[i * ch + ib] / 32768.0 : 0; }
                 ring[(int) (w & MASK)] = (float) l; ring[(int) ((w + 1) & MASK)] = (float) r; w += 2;
                 if (mo) r = l;                                     // LL: 1ch目を R にも
                 l *= gl; r *= gr;

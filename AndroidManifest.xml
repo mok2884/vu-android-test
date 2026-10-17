@@ -3,11 +3,12 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
+    <!-- アプリの名前と最初に開く画面は、組み立てのときに決まる (VU METER / VU SIMPLE) -->
     <application
-        android:label="VU METER"
+        android:label="${appLabel}"
         android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
         <activity
-            android:name=".MainActivity"
+            android:name="${launcherActivity}"
             android:exported="true"
             android:screenOrientation="sensorLandscape"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden">
