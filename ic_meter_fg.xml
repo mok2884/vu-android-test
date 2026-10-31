@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <path android:strokeColor="#23211C" android:strokeWidth="1.6" android:strokeLineCap="butt" android:pathData="M27.80,53.95 A21,21 0 0 1 51.12,45.91"/>
+    <path android:strokeColor="#D63A2E" android:strokeWidth="4.4" android:strokeLineCap="butt" android:pathData="M51.53,44.57 A22.4,22.4 0 0 1 63.35,53.15"/>
+    <path android:fillColor="#23211C" android:pathData="M42.78,66.61 L37.61,41.07 L38.58,40.80 L47.22,65.39 Q45.67,68.44 42.78,66.61 Z"/>
+    <path android:fillColor="#262A31" android:pathData="M70.2,37 L78.8,37 A3.2,3.2 0 0 1 82,40.2 L82,70.8 A3.2,3.2 0 0 1 78.8,74 L70.2,74 A3.2,3.2 0 0 1 67,70.8 L67,40.2 A3.2,3.2 0 0 1 70.2,37 Z"/>
+    <path android:fillColor="#3A3F47" android:pathData="M70.60000000000001,40.5 L72.2,40.5 A1.2,1.2 0 0 1 73.4,41.7 L73.4,69.3 A1.2,1.2 0 0 1 72.2,70.5 L70.60000000000001,70.5 A1.2,1.2 0 0 1 69.4,69.3 L69.4,41.7 A1.2,1.2 0 0 1 70.60000000000001,40.5 Z"/>
+    <path android:fillColor="#3DDC97" android:pathData="M69.4,52.50 L73.4,52.50 L73.4,70.50 L69.4,70.50 Z"/>
+    <path android:fillColor="#F2C94C" android:pathData="M69.4,45.90 L73.4,45.90 L73.4,52.50 L69.4,52.50 Z"/>
+    <path android:fillColor="#D63A2E" android:pathData="M69.4,44.70 L73.4,44.70 L73.4,45.90 L69.4,45.90 Z"/>
+    <path android:fillColor="#3A3F47" android:pathData="M76.80000000000001,40.5 L78.4,40.5 A1.2,1.2 0 0 1 79.60000000000001,41.7 L79.60000000000001,69.3 A1.2,1.2 0 0 1 78.4,70.5 L76.80000000000001,70.5 A1.2,1.2 0 0 1 75.60000000000001,69.3 L75.60000000000001,41.7 A1.2,1.2 0 0 1 76.80000000000001,40.5 Z"/>
+    <path android:fillColor="#3DDC97" android:pathData="M75.60000000000001,52.50 L79.60000000000001,52.50 L79.60000000000001,70.50 L75.60000000000001,70.50 Z"/>
+    <path android:fillColor="#F2C94C" android:pathData="M75.60000000000001,50.70 L79.60000000000001,50.70 L79.60000000000001,52.50 L75.60000000000001,52.50 Z"/>
+</vector>
