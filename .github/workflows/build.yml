@@ -18,11 +18,13 @@ jobs:
           gradle-version: '8.7'
       - name: Arrange files
         run: |
-          mkdir -p w/app/src/main/java/jp/mok/vutest w/app/src/main/cpp w/app/src/main/assets
+          mkdir -p w/app/src/main/java/jp/mok/vutest w/app/src/main/cpp w/app/src/main/assets w/app/src/main/res/drawable w/app/src/main/res/mipmap-anydpi-v26
           cp *.java w/app/src/main/java/jp/mok/vutest/
           cp AndroidManifest.xml w/app/src/main/
           cp aaudio_jni.c CMakeLists.txt w/app/src/main/cpp/
           cp vu_meter.html w/app/src/main/assets/
+          cp ic_*_fg.xml ic_*_bg.xml w/app/src/main/res/drawable/
+          cp ic_meter.xml ic_simple.xml w/app/src/main/res/mipmap-anydpi-v26/
           cat > w/settings.gradle <<'EOF2'
           pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
           dependencyResolutionManagement { repositories { google(); mavenCentral() } }
@@ -44,20 +46,20 @@ jobs:
                   applicationId 'jp.mok.vutest'
                   minSdk 26
                   targetSdk 34
-                  versionCode 4
-                  versionName '0.4'
+                  versionCode 5
+                  versionName '0.5'
                   ndk { abiFilters 'arm64-v8a', 'armeabi-v7a' }
               }
               flavorDimensions 'app'
               productFlavors {
                   full {
                       dimension 'app'
-                      manifestPlaceholders = [launcherActivity: '.MainActivity', appLabel: 'VU METER']
+                      manifestPlaceholders = [launcherActivity: '.MainActivity', appLabel: 'VU METER', appIcon: '@mipmap/ic_meter']
                   }
                   simple {
                       dimension 'app'
                       applicationIdSuffix '.simple'
-                      manifestPlaceholders = [launcherActivity: '.SimpleActivity', appLabel: 'VU SIMPLE']
+                      manifestPlaceholders = [launcherActivity: '.SimpleActivity', appLabel: 'VU SIMPLE', appIcon: '@mipmap/ic_simple']
                   }
               }
               externalNativeBuild {
