@@ -93,6 +93,13 @@ canvas { position: absolute; top: 0; left: 0; z-index: 5; }
 /* 入力選択の箱と同じ見た目のボタン (LR / LL) */
 .selbtn{ background:#333; color:#999; border:1px solid #555; border-radius:4px; padding:5px 0; width:40px; font-size:13px; font-weight:bold; cursor:pointer; }
 .selbtn.on{ background:#555; color:#fff; border-color:#888; }
+/* L/R 時間補正 (スコープの下)。0以外のときは黄色にして、補正中だとわかるようにする */
+.lrRow{ display:flex; align-items:center; gap:6px; margin-top:6px; font-size:12px; color:#888; }
+.lrRow .selbtn{ width:28px; padding:2px 0; }
+#lrVal{ display:inline-block; width:34px; text-align:center; font-variant-numeric:tabular-nums; color:#aaa; }
+.lrRow.active #lrVal, .lrRow.active .lrName{ color:#e8c430; font-weight:bold; }
+#lrBadge{ position:absolute; left:6px; top:5px; z-index:6; font-size:11px; font-weight:bold; color:#1a1400; background:#e8c430;
+          border-radius:3px; padding:1px 5px; display:none; font-family:sans-serif; }
 /* Rだけのレベル。いつも暗めの灰色 */
 input[type=range].rTrim{ accent-color:#5a5a5a; filter:grayscale(1) brightness(0.75); }
 #vuValR{ color:#777; font-size:12px; font-variant-numeric:tabular-nums; }
@@ -190,6 +197,15 @@ input[type=range].rTrim{ accent-color:#5a5a5a; filter:grayscale(1) brightness(0.
 
         <div class="scope">
             <div class="scopeInner"><canvas id="cvsScope" width="220" height="220"></canvas></div>
+            <div id="lrBadge"></div>
+        </div>
+        <!-- 測る機器 (安いUSBインターフェースなど) が左右を数サンプルずらして送ってくるときの校正。
+             卓のオシレーターなど、確実にモノラルの音を入れて、スコープがいちばん細い線になる値に合わせる -->
+        <div class="lrRow" id="lrRow" title="L/R 時間補正 (サンプル)。+ は R が遅れている機器用、- は L が遅れている機器用">
+            <span class="lrName">L/R補正</span>
+            <button class="selbtn" id="lrMinus">−</button>
+            <span id="lrVal">0</span>
+            <button class="selbtn" id="lrPlus">+</button>
         </div>
 
     </div>
@@ -501,6 +517,33 @@ function onRGain(){
 ["vuGainCoarse", "vuGainFine"].forEach(id => document.getElementById(id).addEventListener("input", onMainGain));
 ["vuGainCoarseR", "vuGainFineR"].forEach(id => document.getElementById(id).addEventListener("input", onRGain));
 onMainGain();
+
+// ===== L/R 時間補正 =====
+// 測る機器が作る左右のずれだけを打ち消すためのもの (出音のずれを隠さないよう、自動では合わせない)。
+// + : R が遅れて届く機器用 → L を遅らせてそろえる。 - : L が遅れて届く機器用 → R を遅らせる
+// 開き直すと必ず 0 に戻る
+const LR_MAX = 4;
+let lrShift = 0;
+let lrDelayL = null, lrDelayR = null;   // 電源ON中だけ入る
+function applyLrShift(){
+    if (!lrDelayL || !lrDelayR) return;            // 電源OFF中は数字だけ覚えておく
+    const sr = lrDelayL.context.sampleRate;
+    if (lrDelayL) lrDelayL.delayTime.value = lrShift > 0 ? lrShift / sr : 0;
+    if (lrDelayR) lrDelayR.delayTime.value = lrShift < 0 ? -lrShift / sr : 0;
+}
+function setLrShift(v){
+    lrShift = Math.max(-LR_MAX, Math.min(LR_MAX, v));
+    const txt = (lrShift > 0 ? "+" : "") + lrShift;
+    document.getElementById("lrVal").innerText = txt;
+    document.getElementById("lrRow").classList.toggle("active", lrShift !== 0);
+    const badge = document.getElementById("lrBadge");
+    badge.innerText = "L/R補正 " + txt;
+    badge.style.display = lrShift !== 0 ? "block" : "none";
+    applyLrShift();
+}
+document.getElementById("lrMinus").onclick = () => setLrShift(lrShift - 1);
+document.getElementById("lrPlus").onclick = () => setLrShift(lrShift + 1);
+setLrShift(0);
 
 // ===== 入力モード =====
 // STEREO: 入ってきたとおりに表示する。入力が1chなら、Rは無音のまま表示する
@@ -874,7 +917,7 @@ else navigator.mediaDevices.getUserMedia({ audio: true }).then(s => {
 });
 
 btn.onclick = async () => {
-    if (audioCtx) { if (NATIVE) NativeAudio.stop(); applyInputRoute = null; inGainL = inGainR = null; audioCtx.close(); audioCtx = null; btn.innerText = "POWER OFF"; btn.classList.remove("on"); return; }
+    if (audioCtx) { if (NATIVE) NativeAudio.stop(); applyInputRoute = null; lrDelayL = lrDelayR = null; inGainL = inGainR = null; audioCtx.close(); audioCtx = null; btn.innerText = "POWER OFF"; btn.classList.remove("on"); return; }
     
     // 遅れをできるだけ小さくするよう、ブラウザに要求する (聞いてくれるかは機種しだい)
     const AC = window.AudioContext || window.webkitAudioContext;
@@ -1042,8 +1085,12 @@ let rtaHiT = 0, rtaLoT = 0;
     inGainR = audioCtx.createGain();
     applyGains();
     src.connect(inSplit);
-    inGainL.connect(inMerge, 0, 0);
-    inGainR.connect(inMerge, 0, 1);
+    // L/R 時間補正の遅らせ役 (0 のときは何もしない)
+    lrDelayL = audioCtx.createDelay(0.01);
+    lrDelayR = audioCtx.createDelay(0.01);
+    applyLrShift();
+    inGainL.connect(lrDelayL); lrDelayL.connect(inMerge, 0, 0);
+    inGainR.connect(lrDelayR); lrDelayR.connect(inMerge, 0, 1);
     inMerge.connect(gainNode);
     applyInputRoute = () => {
         try { inSplit.disconnect(); } catch (e) {}
