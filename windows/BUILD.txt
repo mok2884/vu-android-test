@@ -1,0 +1,8 @@
+Windows 版の作り方 (Linux で zig を使って作る)
+pip install ziglang
+
+全部入り (VU_METER.exe):
+python3 -m ziglang c++ -target x86_64-windows-gnu -O2 -std=c++17 -o VU_METER.exe vu_meter_win.cpp -lole32 -luuid -ld3d11 -ldxgi -ld2d1 -ldwrite -lwinmm -luser32 -lgdi32 -Wl,--subsystem,windows
+
+VU だけ (VU_WIN.exe):
+python3 -m ziglang c++ -target x86_64-windows-gnu -O2 -std=c++17 -o VU_WIN.exe vu_win.cpp -lole32 -luuid -ld3d11 -ldxgi -ld2d1 -ldwrite -lwinmm -luser32 -lgdi32 -Wl,--subsystem,windows
