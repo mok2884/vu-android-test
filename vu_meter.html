@@ -2,283 +2,223 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
+<title>VU METER</title>
 <style>
-body { background-color: #050505; margin: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; height: 100vh; font-family: sans-serif; }
-.console { background: #1a1a1a; padding: 25px; border-radius: 12px; border: 2px solid #333; display: flex; flex-direction: column; align-items: center; gap: 15px; }
-.display-row { display: flex; gap: 20px; align-items: flex-end; }
-.unit { display: flex; flex-direction: column; align-items: center; gap: 8px; }
-.label { color: #eee; font-weight: bold; font-size: 16px; font-family: sans-serif; }
-/* 窓の表示の大きさ。中身 (VUは280x145、スコープは220x220で描く) をまるごと拡大縮小する */
-:root{ --vuK: 0.92; --scopeK: 1.09; }
-.meter { position: relative; width: calc(280px * var(--vuK)); height: calc(145px * var(--vuK)); background-color: #fdfae1; overflow: hidden; border-radius: 4px; border: 1px solid #444; }
-.meterInner { position: absolute; left: 0; top: 0; width: 280px; height: 145px; transform-origin: 0 0; transform: scale(var(--vuK)); }
-.scope { position: relative; width: calc(220px * var(--scopeK)); height: calc(220px * var(--scopeK)); background-color: #000; border: 1px solid #444; border-radius: 4px; overflow: hidden; }
-.scopeInner { position: absolute; left: 0; top: 0; width: 220px; height: 220px; transform-origin: 0 0; transform: scale(var(--scopeK)); }
-.needle {
-    position: absolute;
-    top: 181px;
-    left: 140px;
-    width: 0;
-    height: 150px;
-    margin-top: -150px;
-    transform-origin: bottom center;
-    z-index: 10;
-}
+/* 配置は Claude の Design「VUメーター 配置案」と同じ。1440x900 の枠に、位置を決めて並べる。
+   2連 (#mainPanel.m2) と 4連 (#mainPanel.m4) で、置き場所と大きさを切り替える */
+body { background-color: #050505; margin: 0; height: 100vh; font-family: Arial, Helvetica, sans-serif; color: #ddd; overflow-x: hidden; }
+#mainPanel { position: relative; width: 1440px; height: 900px; transform-origin: top center; margin: 0 auto; }
+#mainPanel * { box-sizing: border-box; }
+.abs { position: absolute; }
+.panel { position: absolute; background: #1a1a1a; border: 2px solid #333; border-radius: 12px; }
+.m2 .only4, .m4 .only2 { display: none !important; }
 
-.needle::before {
-    content: "";
-    position: absolute;
-    left: -3px;
-    bottom: 0;
-    width: 6px;
-    height: 150px;
-    background: #111;
-    clip-path: polygon(
-        33% 0%,
-        67% 0%,
-        100% 100%,
-        0% 100%
-    );
-}
-    
-.controls { display: flex; flex-wrap: wrap; justify-content: center; gap: 20px; color: #aaa; margin-top: 10px; }
-.knob-group { display: flex; flex-direction: column; align-items: center; gap: 5px; font-size: 12px; }
-select { background: #333; color: #fff; border: 1px solid #555; padding: 5px; border-radius: 4px; width: 200px; margin-bottom: 10px; }
-input[type=range] { width: 130px; cursor: pointer; }
-#btn { padding: 10px 0; width: 140px; flex-shrink: 0; white-space: nowrap; cursor: pointer; font-weight: bold; border-radius: 4px; border: none; background: #444; color: white; }
-#btn.on { background: #d00; }
-canvas { position: absolute; top: 0; left: 0; z-index: 5; }
-    .rta-window {
-    width:760px;
-    height:260px;
-    background:#050505;
-    border:1px solid #444;
-    box-sizing:border-box;
-}
+/* ボタン */
+.selbtn { background:#333; color:#aaa; border:1px solid #555; border-radius:4px; font:bold 13px Arial, Helvetica, sans-serif; height:32px; padding:0 10px; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; gap:6px; }
+.selbtn.on { background:#555; color:#fff; border-color:#999; }
+.selbtn.green { background:#0a7a3c; color:#fff; border-color:#16c060; }
+.pbtn { background:#2a2a2a; color:#ddd; border:1px solid #555; border-radius:6px; font:bold 12px Arial, Helvetica, sans-serif; letter-spacing:1px; height:32px; padding:0 10px; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; gap:6px; }
+.pbtn:hover { background:#383838; border-color:#777; }
+.pbtn.on { background:#0a7a3c; border-color:#16c060; color:#fff; }
+.kbd { font:bold 10px Arial, Helvetica, sans-serif; color:#aaa; border:1px solid #666; border-radius:3px; padding:1px 4px; letter-spacing:0; }
+#btn { border:none; border-radius:4px; background:#444; color:#fff; font:bold 13px Arial, Helvetica, sans-serif; cursor:pointer; }
+#btn.on { background:#d00; }
+select { background:#333; color:#fff; border:1px solid #555; border-radius:4px; height:32px; padding:0 8px; font:14px Arial, Helvetica, sans-serif; }
+input[type=range] { margin:0; height:16px; accent-color:#0075ff; cursor:pointer; }
+input[type=range].rTrim { accent-color:#5a5a5a; filter:grayscale(1) brightness(0.8); }
 
-#rtaCanvas {
-    position:static;
-    display:block;
-}
-    .rta-panel{
-    background:#1a1a1a;
-    border:2px solid #333;
-    border-radius:12px;
-    padding:15px;
-    margin-top:15px;
-    display:flex;
-    flex-direction:column;
-    align-items:center;
-    gap:10px;
-}
-.pbtn{
-    width:74px;
-    height:28px;
-    padding:0;
-    box-sizing:border-box;
-    background:#2a2a2a;
-    color:#ddd;
-    border:1px solid #555;
-    border-radius:6px;
-    font-size:12px;
-    font-weight:bold;
-    letter-spacing:1px;
-    cursor:pointer;
-    transition:background .12s, border-color .12s;
-}
-.pbtn:hover{ background:#383838; border-color:#777; }
-.pbtn:active{ background:#1c1c1c; }
-.pbtn.on{ background:#0a7a3c; border-color:#16c060; color:#fff; }
-.pbtn.tab{ width:104px; }
-/* 入力選択の箱と同じ見た目のボタン (LR / LL) */
-.selbtn{ background:#333; color:#999; border:1px solid #555; border-radius:4px; padding:5px 0; width:40px; font-size:13px; font-weight:bold; cursor:pointer; }
-.selbtn.on{ background:#555; color:#fff; border-color:#888; }
-/* L/R 時間補正 (スコープの下)。0以外のときは黄色にして、補正中だとわかるようにする */
-.lrRow{ display:flex; align-items:center; gap:6px; margin-top:6px; font-size:12px; color:#888; }
-.lrRow .selbtn{ width:28px; padding:2px 0; }
-#lrVal{ display:inline-block; width:34px; text-align:center; font-variant-numeric:tabular-nums; color:#aaa; }
-.lrRow.active #lrVal, .lrRow.active .lrName{ color:#e8c430; font-weight:bold; }
-#lrBadge{ position:absolute; left:6px; top:5px; z-index:6; font-size:11px; font-weight:bold; color:#1a1400; background:#e8c430;
-          border-radius:3px; padding:1px 5px; display:none; font-family:sans-serif; }
-/* Rだけのレベル。いつも暗めの灰色 */
-input[type=range].rTrim{ accent-color:#5a5a5a; filter:grayscale(1) brightness(0.75); }
-#vuValR{ color:#777; font-size:12px; font-variant-numeric:tabular-nums; }
-.tpBox{ display:flex; flex-direction:column; gap:3px; margin-left:6px; font-size:12px; line-height:1; color:#888; font-variant-numeric:tabular-nums; white-space:nowrap; text-align:left; }
-.tpBox .tpLab{ display:inline-block; width:46px; }
-.tpBox .tpNum{ display:inline-block; width:40px; text-align:right; }
-.loudCol{ display:flex; flex-direction:column; align-items:center; gap:6px; width:52px; }
-.loudName{ font-size:12px; color:#aaa; }
-.loudNum{ font-size:15px; color:#ccc; font-variant-numeric:tabular-nums; white-space:nowrap; }
-.loudTrack{ width:20px; height:220px; background:#222; position:relative; }
-#vuVal, #scopeVal{
-    color:#888;
-    font-size:12px;
-    font-variant-numeric:tabular-nums;
-}
-#mainPanel{
-    transform-origin: top center;
-}
-    
+/* 上の帯 */
+.sumRow { position:absolute; left:440px; display:flex; align-items:center; font-size:12px; color:#bbb; white-space:nowrap; }
+.sumRow .lab { width:60px; font-weight:bold; color:#3ddc5a; }
+.sumRow .dev { width:240px; color:#eee; overflow:hidden; text-overflow:ellipsis; }
+.sumRow .inf { width:126px; color:#8a8a8a; overflow:hidden; text-overflow:ellipsis; }
+.sumRow .gn { width:144px; }
+.m2 #sum1 { top:47px; } .m4 #sum1 { top:38px; } #sum2 { top:56px; }
+.badge { background:#e8c430; color:#1a1400; font-size:11px; font-weight:bold; padding:2px 6px; border-radius:3px; }
+#latVal { position:absolute; right:42px; top:46px; width:420px; text-align:right; font-size:11px; color:#8a8a8a; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+/* VU の窓。中身は 280x145 で描いて、--vuK 倍にする */
+.m2 { --vuK: 1.5643; --trackH: 220px; }
+.m4 { --vuK: 1.0143; --trackH: 128px; }
+.meter { position:absolute; width:calc(280px * var(--vuK) + 2px); height:calc(145px * var(--vuK) + 2px); background-color:#fdfae1; overflow:hidden; border-radius:4px; border:1px solid #444; }
+.meterInner { position:absolute; left:0; top:0; width:280px; height:145px; transform-origin:0 0; transform:scale(var(--vuK)); }
+.needle { position:absolute; top:181px; left:140px; width:0; height:150px; margin-top:-150px; transform-origin:bottom center; z-index:10; }
+.needle::before { content:""; position:absolute; left:-3px; bottom:0; width:6px; height:150px; background:#111; clip-path:polygon(33% 0%, 67% 0%, 100% 100%, 0% 100%); }
+.meter canvas { position:absolute; top:0; left:0; }
+.vuLab { position:absolute; font-weight:bold; color:#eee; text-align:center; }
+.m2 .vuLab { font-size:16px; width:440px; top:176px; }
+.m4 .vuLab { font-size:13px; width:286px; top:133px; color:#bbb; }
+.m2 #vu1 { left:68px; top:202px; } .m2 #vu2 { left:540px; top:202px; }
+.m4 #vu1 { left:60px; top:152px; } .m4 #vu2 { left:360px; top:152px; } .m4 #vu3 { left:692px; top:152px; } .m4 #vu4 { left:992px; top:152px; }
+.m2 #lab1 { left:68px; } .m2 #lab2 { left:540px; }
+.m4 #lab1 { left:60px; } .m4 #lab2 { left:360px; } .m4 #lab3 { left:692px; } .m4 #lab4 { left:992px; }
+.grpLab { position:absolute; top:110px; font-size:15px; font-weight:bold; color:#eee; letter-spacing:1px; }
+.vline { position:absolute; top:124px; width:2px; height:176px; background:#333; }
+
+/* スコープ */
+#scopeBlk { position:absolute; display:flex; flex-direction:column; }
+.m2 #scopeBlk { left:1012px; top:146px; width:260px; gap:0; }
+.m4 #scopeBlk { left:44px; top:352px; width:330px; gap:6px; }
+.m2 { --scopeK: 1.1727; } .m4 { --scopeK: 1.4909; }
+.scopeHead { display:flex; align-items:center; gap:8px; height:24px; }
+.m2 .scopeHead .ttl { font-size:16px; } .m4 .scopeHead .ttl { font-size:15px; }
+.scopeHead .ttl { font-weight:bold; color:#eee; }
+.scope { position:relative; width:calc(220px * var(--scopeK) + 2px); height:calc(220px * var(--scopeK) + 2px); background-color:#000; border:1px solid #444; border-radius:4px; overflow:hidden; }
+.scopeInner { position:absolute; left:0; top:0; width:220px; height:220px; transform-origin:0 0; transform:scale(var(--scopeK)); }
+.scopeInner canvas { position:absolute; left:0; top:0; }
+#lrBadge { position:absolute; left:6px; top:5px; z-index:6; display:none; }
+#scopeVal { font-size:12px; color:#8a8a8a; }
+
+/* ラウドネスの M/S */
+#loudBlk { position:absolute; }
+.m2 #loudBlk { left:1290px; top:146px; width:100px; } .m4 #loudBlk { left:1312px; top:116px; width:80px; }
+#loudBlk .ttl { text-align:center; font-weight:bold; color:#eee; }
+.m2 #loudBlk .ttl { font-size:16px; } .m4 #loudBlk .ttl { font-size:13px; }
+.loudCols { display:flex; justify-content:center; }
+.m2 .loudCols { gap:20px; margin-top:7px; } .m4 .loudCols { gap:16px; margin-top:5px; }
+.loudCol { display:flex; flex-direction:column; align-items:center; gap:3px; }
+.loudName { font-size:12px; color:#aaa; }
+.loudNum { color:#ddd; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.m2 .loudNum { font-size:15px; } .m4 .loudNum { font-size:13px; }
+.loudTrack { height:var(--trackH); background:#222; position:relative; }
+.m2 .loudTrack { width:24px; } .m4 .loudTrack { width:20px; }
+
+/* 下の段 */
+.m2 #pBot { left:20px; top:468px; width:1400px; height:412px; }
+.m4 #pBot { left:20px; top:334px; width:1400px; height:546px; }
+.m2 #pMet { left:20px; top:94px; width:1400px; height:360px; }
+.m4 #pMet { left:20px; top:94px; width:1400px; height:226px; }
+#anaRow { position:absolute; display:flex; align-items:center; gap:6px; height:32px; }
+.m2 #anaRow { left:44px; top:486px; width:1352px; } .m4 #anaRow { left:398px; top:350px; width:998px; }
+.tpBox { display:grid; grid-template-columns:52px 44px 40px; row-gap:4px; margin-left:16px; font-size:12px; line-height:1; color:#8a8a8a; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.tpBox .tpNum { text-align:right; color:#ccc; }
+.lkfsBox { display:flex; flex-direction:column; align-items:flex-end; color:#3ddc5a; line-height:1; white-space:nowrap; margin-right:6px; }
+#lkfsVal { font-weight:bold; font-variant-numeric:tabular-nums; }
+.m2 #lkfsVal { font-size:40px; } .m4 #lkfsVal { font-size:34px; }
+#rtaWin { position:absolute; background:#050505; border:1px solid #444; }
+.m2 #rtaWin { left:44px; top:530px; width:1352px; height:334px; } .m4 #rtaWin { left:398px; top:394px; width:998px; height:470px; }
+#rtaCanvas { display:block; }
+
+/* 入力の設定の窓 (2連でも4連でも同じ。左は開けておく) */
+#setWin { position:absolute; left:404px; top:566px; width:1016px; height:310px; background:#232323; border:1px solid #777; border-radius:10px; box-shadow:0 12px 40px rgba(0,0,0,0.7); display:none; overflow:hidden; z-index:20; }
+#setWin.open { display:block; }
+.setHead { height:40px; background:#2e2e2e; border-bottom:1px solid #444; display:flex; align-items:center; gap:12px; padding:0 8px 0 18px; }
+.setHead b { font-size:14px; color:#eee; } .setHead span { font-size:11px; color:#8a8a8a; }
+#setClose { margin-left:auto; width:32px; height:32px; background:none; border:none; color:#ccc; font-size:20px; cursor:pointer; }
+.cards { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:16px; padding:14px 18px; }
+.card { background:#181818; border:1px solid #3a3a3a; border-radius:8px; padding:12px 16px; height:242px; display:flex; flex-direction:column; gap:10px; }
+.cardHead { display:flex; align-items:center; gap:8px; }
+.cardHead b { font-size:13px; color:#3ddc5a; letter-spacing:1px; }
+.cardHead span { margin-left:auto; font-size:11px; color:#8a8a8a; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:340px; }
+.row { display:flex; align-items:center; gap:6px; font-size:12px; color:#aaa; }
+.row .k { width:52px; flex-shrink:0; }
+.lv { display:grid; grid-template-columns:52px minmax(0, 1fr) 64px 74px; column-gap:8px; row-gap:10px; align-items:center; font-size:12px; color:#aaa; }
+.lv input { width:100%; }
+.lrRow.active .lrName, .lrRow.active .lrValN { color:#e8c430; font-weight:bold; }
+.lrValN { width:30px; text-align:center; color:#aaa; font-size:13px; }
+.note { margin-left:8px; font-size:11px; color:#8a8a8a; }
+#help { position:fixed; left:12px; bottom:4px; font-size:11px; color:#666; white-space:nowrap; }
 </style>
 </head>
 <body>
-    <div id="mainPanel">
-<div class="console">
-  
+<div id="mainPanel" class="m2">
 
-<div class="display-row">
-    <div class="unit" id="vuGroup">
-<div style="display:flex; align-items:flex-end; gap:70px;">
-    <button id="btn">POWER OFF</button>
+  <!-- 上の帯 -->
+  <div class="panel" style="left:20px; top:20px; width:1400px; height:60px;"></div>
+  <button id="btn" class="abs" style="left:42px; top:32px; width:120px; height:36px;">POWER OFF</button>
+  <button id="b2" class="selbtn abs on" style="left:176px; top:34px; width:52px;">2連</button>
+  <button id="b4" class="selbtn abs" style="left:232px; top:34px; width:72px;">4連<span class="kbd">V</span></button>
+  <button id="bSet" class="selbtn abs" style="left:312px; top:34px; width:100px;">入力の設定</button>
+  <div class="abs" style="left:426px; top:35px; width:1px; height:30px; background:#333;"></div>
+  <div id="sum1" class="sumRow"><span class="lab">INPUT 1</span><span class="dev" id="sum1Dev">--</span><span class="inf" id="sum1Inf">LR</span><span class="gn" id="sum1Gn">L +0.0 / R +0.0 dB</span><span class="badge" id="sum1Bd" style="display:none"></span></div>
+  <div id="sum2" class="sumRow only4"><span class="lab">INPUT 2</span><span class="dev" id="sum2Dev">（なし）</span><span class="inf" id="sum2Inf">LR</span><span class="gn" id="sum2Gn">L +0.0 / R +0.0 dB</span><span class="badge" id="sum2Bd" style="display:none"></span></div>
+  <div id="latVal"></div>
 
-    <div class="knob-group">
-        <label style="color:#0f0">
-            SELECT INPUT DEVICE:
-        </label>
+  <!-- VU の段 -->
+  <div class="panel" id="pMet"></div>
+  <div class="grpLab only4" style="left:60px;">INPUT 1</div>
+  <div class="grpLab only4" style="left:692px;">INPUT 2</div>
+  <div class="vline only4" style="left:668px;"></div>
+  <div class="vline only4" style="left:1300px;"></div>
+  <div class="vuLab" id="lab1"><span class="only2">L-VU</span><span class="only4">L</span></div>
+  <div class="vuLab" id="lab2"><span class="only2">R-VU</span><span class="only4">R</span></div>
+  <div class="vuLab only4" id="lab3">L</div>
+  <div class="vuLab only4" id="lab4">R</div>
+  <div class="meter" id="vu1"><div class="meterInner"><canvas id="cvsL" width="280" height="145"></canvas><div id="ndlL" class="needle"></div></div></div>
+  <div class="meter" id="vu2"><div class="meterInner"><canvas id="cvsR" width="280" height="145"></canvas><div id="ndlR" class="needle"></div></div></div>
+  <div class="meter only4" id="vu3"><div class="meterInner"><canvas id="cvs3" width="280" height="145"></canvas><div id="ndl3" class="needle"></div></div></div>
+  <div class="meter only4" id="vu4"><div class="meterInner"><canvas id="cvs4" width="280" height="145"></canvas><div id="ndl4" class="needle"></div></div></div>
 
-        <div style="display:flex; gap:6px; align-items:flex-start;">
-            <select id="micSelect">
-                <option value="">
-                    -- Device List --
-                </option>
-            </select>
-            <button id="modeStereo" class="selbtn" title="ステレオ (L→L、R→R)">LR</button>
-            <button id="modeMono" class="selbtn" title="モノラル (L を両方へ)">LL</button>
-        </div>
-        <div id="latVal" style="font-size:11px; color:#888; height:14px; width:292px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:center; font-variant-numeric:tabular-nums;"></div>
+  <div id="loudBlk">
+    <div class="ttl">LOUDNESS</div>
+    <div class="loudCols">
+      <div class="loudCol">
+        <div class="loudName">M</div>
+        <div class="loudNum" id="mVal">--.-</div>
+        <div class="loudTrack"><div id="barM" style="position:absolute; bottom:0; width:100%; height:0%;"></div><div class="loudTgt" style="position:absolute; left:-4px; right:-4px; height:2px; background:#fff;"></div></div>
+      </div>
+      <div class="loudCol">
+        <div class="loudName">S</div>
+        <div class="loudNum" id="sVal">--.-</div>
+        <div class="loudTrack"><div id="barS" style="position:absolute; bottom:0; width:100%; height:0%;"></div><div class="loudTgt" style="position:absolute; left:-4px; right:-4px; height:2px; background:#fff;"></div></div>
+      </div>
     </div>
+  </div>
 
+  <!-- 下の段 -->
+  <div class="panel" id="pBot"></div>
+  <div id="scopeBlk">
+    <div class="scopeHead"><span class="ttl">PHASE SCOPE</span><span class="only4" style="font-size:11px; color:#8a8a8a;">INPUT 1</span><input type="range" id="scopeGain" min="0.1" max="5.0" step="0.1" value="1.0" style="width:70px; margin-left:auto;"><span id="scopeVal">x1.0</span></div>
+    <div class="scope"><div class="scopeInner"><canvas id="cvsScope" width="220" height="220"></canvas></div><div id="lrBadge" class="badge"></div></div>
+  </div>
+  <div id="anaRow">
+    <button id="tabRta" class="pbtn on" style="width:110px;">RTA</button>
+    <button id="tabLoud" class="pbtn" style="width:140px;">LOUDNESS<span class="kbd">R/L</span></button>
+    <div class="tpBox">
+      <span>TP 10s</span><span class="tpNum" id="tpRecentVal">--.-</span><span>&nbsp;dBTP</span>
+      <span>TP MAX</span><span class="tpNum" id="tpMaxVal">--.-</span><span>&nbsp;dBTP</span>
+    </div>
+    <div style="flex:1;"></div>
+    <div class="lkfsBox"><span style="font-size:11px; color:#aaa; margin-bottom:2px;">INTEGRATED</span><div><span id="lkfsVal">--.-</span><span style="font-size:16px;"> LKFS</span></div></div>
+    <button id="lkfsStart" class="pbtn"><span id="startLbl">START</span><span class="kbd" id="startKbd">SPACE</span></button>
+    <button id="lkfsReset" class="pbtn" style="width:120px;">RESET<span class="kbd" id="resetKbd" style="display:none">SPACE</span></button>
+  </div>
+  <div id="rtaWin"><canvas id="rtaCanvas" width="1350" height="332"></canvas></div>
+
+  <!-- 入力の設定の窓 -->
+  <div id="setWin" role="dialog" aria-label="入力の設定">
+    <div class="setHead"><b>入力の設定</b><span>メーターを見ながら合わせる</span><button id="setClose" aria-label="閉じる">×</button></div>
+    <div class="cards">
+      <div class="card">
+        <div class="cardHead"><b>INPUT 1</b><span id="card1Inf"></span></div>
+        <div class="row"><label class="k" for="micSelect">機器</label><select id="micSelect" style="flex:1; min-width:0;"><option value="">-- Device List --</option></select></div>
+        <div class="row"><span class="k">入れ方</span><button id="modeStereo" class="selbtn" style="width:44px;">LR</button><button id="modeMono" class="selbtn" style="width:44px;">LL</button></div>
+        <div class="lv">
+          <span>L / R</span><input type="range" id="vuGainCoarse" min="0" max="40" step="1" value="20"><input type="range" id="vuGainFine" min="-1" max="1" step="0.1" value="0"><span id="vuVal" style="color:#ccc;">+0.0 dB</span>
+          <span>R だけ</span><input type="range" class="rTrim" id="vuGainCoarseR" min="0" max="40" step="1" value="20"><input type="range" class="rTrim" id="vuGainFineR" min="-1" max="1" step="0.1" value="0"><span id="vuValR" style="color:#9a9a9a;">R +0.0 dB</span>
+        </div>
+        <div class="row lrRow" id="lrRow"><span class="k lrName">L/R補正</span><button class="selbtn" id="lrMinus" style="width:40px;">−</button><span class="lrValN" id="lrVal">0</span><button class="selbtn" id="lrPlus" style="width:40px;">+</button><span class="note">+ は R が遅れて届く機器用</span></div>
+      </div>
+      <div class="card">
+        <div class="cardHead"><b>INPUT 2</b><span id="card2Inf">4連のときに使う</span></div>
+        <div class="row"><label class="k" for="micSelect2">機器</label><select id="micSelect2" style="flex:1; min-width:0;"><option value="">（なし）</option></select></div>
+        <div class="row"><span class="k">入れ方</span><button id="mode2Stereo" class="selbtn on" style="width:44px;">LR</button><button id="mode2Mono" class="selbtn" style="width:44px;">LL</button></div>
+        <div class="lv">
+          <span>L / R</span><input type="range" id="g2C" min="0" max="40" step="1" value="20"><input type="range" id="g2F" min="-1" max="1" step="0.1" value="0"><span id="g2Val" style="color:#ccc;">+0.0 dB</span>
+          <span>R だけ</span><input type="range" class="rTrim" id="g2CR" min="0" max="40" step="1" value="20"><input type="range" class="rTrim" id="g2FR" min="-1" max="1" step="0.1" value="0"><span id="g2ValR" style="color:#9a9a9a;">R +0.0 dB</span>
+        </div>
+        <div class="row lrRow" id="lr2Row"><span class="k lrName">L/R補正</span><button class="selbtn" id="lr2Minus" style="width:40px;">−</button><span class="lrValN" id="lr2Val">0</span><button class="selbtn" id="lr2Plus" style="width:40px;">+</button><span class="note">+ は R が遅れて届く機器用</span></div>
+      </div>
+    </div>
+  </div>
 </div>
-<div style="height:20px;"></div>
-        
-   <div style="display:flex; gap:18px; align-items:flex-start; margin-bottom:2px;">
-   <div style="display:flex; flex-direction:column; align-items:center;">
-    <input type="range" id="vuGainCoarse" min="0" max="40" step="1" value="20">
-    <input type="range" id="vuGainFine" min="-1" max="1" step="0.1" value="0">
-    <span id="vuVal">0.0 dB</span>
-   </div>
-   <div style="display:flex; flex-direction:column; align-items:center;">
-    <input type="range" class="rTrim" id="vuGainCoarseR" min="0" max="40" step="1" value="20">
-    <input type="range" class="rTrim" id="vuGainFineR" min="-1" max="1" step="0.1" value="0">
-    <span id="vuValR">R +0.0 dB</span>
-   </div>
-   </div>
-
-<div style="display:flex; gap:20px; align-items:flex-start;">
-
-    <div class="unit">
-        <div class="label">L-VU</div>
-        <div class="meter">
-            <div class="meterInner">
-            <canvas id="cvsL" width="280" height="145"></canvas>
-            <div id="ndlL" class="needle"></div>
-            </div>
-        </div>
-    </div>
-
-    <div class="unit">
-        <div class="label">R-VU</div>
-        <div class="meter">
-            <div class="meterInner">
-            <canvas id="cvsR" width="280" height="145"></canvas>
-            <div id="ndlR" class="needle"></div>
-            </div>
-        </div>
-    </div>
-
-</div>
-</div>
-   <div class="unit">
-
-        <input type="range" id="scopeGain" min="0.1" max="5.0" step="0.1" value="1.0">
-        <span id="scopeVal">x1.0</span>
-
-        <div class="label">PHASE SCOPE</div>
-
-        <div class="scope">
-            <div class="scopeInner"><canvas id="cvsScope" width="220" height="220"></canvas></div>
-            <div id="lrBadge"></div>
-        </div>
-        <!-- 測る機器 (安いUSBインターフェースなど) が左右を数サンプルずらして送ってくるときの校正。
-             卓のオシレーターなど、確実にモノラルの音を入れて、スコープがいちばん細い線になる値に合わせる -->
-        <div class="lrRow" id="lrRow" title="L/R 時間補正 (サンプル)。+ は R が遅れている機器用、- は L が遅れている機器用">
-            <span class="lrName">L/R補正</span>
-            <button class="selbtn" id="lrMinus">−</button>
-            <span id="lrVal">0</span>
-            <button class="selbtn" id="lrPlus">+</button>
-        </div>
-
-    </div>
-
-    <div class="unit" style="width:112px;">
-        <div class="label">LOUDNESS</div>
-
-        <div style="display:flex; gap:4px; align-items:flex-end;">
-            <div class="loudCol">
-                <div class="loudName">M</div>
-                <div class="loudTrack" style="height:220px;">
-                    <div id="barM" style="position:absolute; bottom:0; width:100%; height:0%;"></div>
-                    <div class="loudTgt" style="position:absolute; left:-3px; right:-3px; height:1px; background:#fff;"></div>
-                </div>
-                <div class="loudNum" id="mVal">--.-</div>
-            </div>
-            <div class="loudCol">
-                <div class="loudName">S</div>
-                <div class="loudTrack" style="height:220px;">
-                    <div id="barS" style="position:absolute; bottom:0; width:100%; height:0%;"></div>
-                    <div class="loudTgt" style="position:absolute; left:-3px; right:-3px; height:1px; background:#fff;"></div>
-                </div>
-                <div class="loudNum" id="sVal">--.-</div>
-            </div>
-        </div>
-    </div>
-
-</div>
-        </div>
-    
-    
-    
-<div class="rta-panel">
-
-    <div style="display:flex; align-items:center; gap:8px; width:760px;">
-        <button id="tabRta" class="pbtn tab on">RTA</button>
-        <button id="tabLoud" class="pbtn tab">LOUDNESS</button>
-        <div class="tpBox">
-            <div><span class="tpLab">TP 10s</span><span class="tpNum" id="tpRecentVal">--.-</span> dBTP</div>
-            <div><span class="tpLab">TP MAX</span><span class="tpNum" id="tpMaxVal">--.-</span> dBTP</div>
-        </div>
-        <div style="flex:1;"></div>
-        <div style="display:flex; flex-direction:column; align-items:flex-end; white-space:nowrap; color:#0f0; line-height:1;">
-            <span style="font-size:11px; color:#aaa; margin-bottom:2px;">INTEGRATED</span>
-            <div><span id="lkfsVal" style="font-size:50px; font-weight:bold; font-variant-numeric:tabular-nums;">--.-</span><span style="font-size:18px;"> LKFS</span></div>
-        </div>
-        <div style="display:flex; gap:6px; margin-left:10px;">
-            <button id="lkfsStart" class="pbtn">START</button>
-            <button id="lkfsReset" class="pbtn">RESET</button>
-        </div>
-    </div>
-
-    <div class="rta-window">
-        <canvas id="rtaCanvas"
-                width="760"
-                height="260"></canvas>
-    </div>
-
-</div>
-
-
-
-    
-   
-   
-</div>
-
+<div id="help">SPACE ラウドネス START / RESET　 V 2連/4連　 R・L RTA/LOUDNESS</div>
 <script>
 // Androidアプリの中で開いたときは、音をアプリから受け取る (アプリが NativeAudio を用意する)
 const NATIVE = typeof window.NativeAudio !== "undefined";
 
-const FIT_TOP = 20;        // 画面の上端とのあいだの余白 (px)
-const FIT_RATIO = 0.85;    // 画面に対する全体の大きさ (1で画面いっぱい)
+const FIT_TOP = 0;        // 画面の上端とのあいだの余白 (px)
+const FIT_RATIO = 1.0;    // 画面に対する全体の大きさ (1で画面いっぱい)
 let fitW = 0;
 
 // 全体を画面に収まる大きさにする
@@ -483,7 +423,7 @@ function drawVUBase(canvasId) {
     ctx.font = "bold 18px Arial"; ctx.fillStyle = BLACK;
     ctx.fillText("VU", CX, VU_H - 14);
 }
-drawVUBase("cvsL"); drawVUBase("cvsR");
+drawVUBase("cvsL"); drawVUBase("cvsR"); drawVUBase("cvs3"); drawVUBase("cvs4");
 
 // ===== 入力レベル =====
 // 左のスライダー: L と R の両方に効く。右のスライダー: R だけ。
@@ -499,6 +439,7 @@ function setRSliders(db){
     document.getElementById("vuGainFineR").value = f;
 }
 function applyGains(){
+    if (typeof updSummary === "function") updSummary();
     if (NATIVE) NativeAudio.setGains(gainLdB, gainRdB);   // アプリが計算するVUにも同じレベルを
     if (inGainL) inGainL.gain.value = Math.pow(10, gainLdB / 20);
     if (inGainR) inGainR.gain.value = Math.pow(10, gainRdB / 20);
@@ -540,6 +481,7 @@ function setLrShift(v){
     badge.innerText = "L/R補正 " + txt;
     badge.style.display = lrShift !== 0 ? "block" : "none";
     applyLrShift();
+    if (typeof updSummary === "function") updSummary();
 }
 document.getElementById("lrMinus").onclick = () => setLrShift(lrShift - 1);
 document.getElementById("lrPlus").onclick = () => setLrShift(lrShift + 1);
@@ -556,6 +498,7 @@ function setInputMode(mode){
     if (NATIVE) NativeAudio.setMono(mode === "mono");
     document.getElementById("modeStereo").classList.toggle("on", mode === "stereo");
     document.getElementById("modeMono").classList.toggle("on", mode === "mono");
+    if (typeof updSummary === "function") updSummary();
     if (applyInputRoute) applyInputRoute();
 }
 document.getElementById("modeStereo").onclick = () => setInputMode("stereo");
@@ -790,9 +733,9 @@ let rtaMode = "rta";
 function drawLoudHistory(){
     const cv = document.getElementById("rtaCanvas");
     const g = cv.getContext("2d");
-    const pitch = 3;     // 3秒ぶんの横幅(px)
-    const x1 = cv.width - 10, x0 = x1 - LOUD_HIST_BARS * pitch;
-    const yTop = 10, yBot = 220;
+    const x1 = cv.width - 10, x0 = 50;
+    const pitch = (x1 - x0) / LOUD_HIST_BARS;     // 3秒ぶんの横幅(px)
+    const yTop = 10, yBot = cv.height - 40;
     const yOf = v => yBot - (v - LOUD_MIN) / (LOUD_MAX - LOUD_MIN) * (yBot - yTop);
 
     g.fillStyle = "#050505";
@@ -845,7 +788,7 @@ function drawLoudHistory(){
     g.textAlign = "center";
     for (let m = 0; m <= LOUD_HIST_MIN; m += 3) {
         g.fillText(m === 0 ? "0" : "-" + m + "分",
-            x1 - m * 60 / LOUD_BAR_SEC * pitch, 245);
+            x1 - m * 60 / LOUD_BAR_SEC * pitch, cv.height - 15);
     }
 }
 
@@ -871,7 +814,7 @@ document.getElementById("tabLoud").onclick = () => setRtaMode("loud");
     el.style.background =
         "linear-gradient(to top, " +
         loudStops().map(st => st[1] + " " + (st[0] * 100) + "%").join(", ") +
-        ") bottom / 100% " + el.parentElement.style.height + " no-repeat";
+        ") bottom / 100% var(--trackH) no-repeat";
 });
 
 // バーの目標線の位置
@@ -881,14 +824,172 @@ document.querySelectorAll(".loudTgt").forEach(el => {
 });
 
 // START / STOP / RESET
+// START / STOP の表示。スペースキーは、止まっているときは START、動いているときは RESET
+function updStart(){
+    document.getElementById("startLbl").innerText = loudRun ? "STOP" : "START";
+    document.getElementById("startKbd").style.display = loudRun ? "none" : "";
+    document.getElementById("resetKbd").style.display = loudRun ? "" : "none";
+    document.getElementById("lkfsStart").classList.toggle("on", loudRun);
+}
 document.getElementById("lkfsStart").onclick = () => {
     loudRun = !loudRun;
     loudRunBlocks = 0;
-    document.getElementById("lkfsStart").innerText = loudRun ? "STOP" : "START";
-    document.getElementById("lkfsStart").classList.toggle("on", loudRun);
+    updStart();
 };
 document.getElementById("lkfsReset").onclick = loudReset;
 
+
+// ===== 2連 / 4連、入力の設定の窓、INPUT 2、キー =====
+var summaryReady = false;   // 下の準備ができるまで、上の帯のあらましは書かない
+let mode4 = false;
+const mainPanel = document.getElementById("mainPanel");
+function setMode4(on){
+    mode4 = on;
+    mainPanel.classList.toggle("m4", on); mainPanel.classList.toggle("m2", !on);
+    document.getElementById("b2").classList.toggle("on", !on);
+    document.getElementById("b4").classList.toggle("on", on);
+    const cv = document.getElementById("rtaCanvas");
+    if (on) { cv.width = 996; cv.height = 468; } else { cv.width = 1350; cv.height = 332; }
+    loudDirty = true; if (rtaMode === "loud") drawLoudHistory();
+    scopeResize();
+    if (on) in2Start(); else in2Stop();
+    updSummary();
+}
+document.getElementById("b2").onclick = () => { if (mode4) setMode4(false); };
+document.getElementById("b4").onclick = () => { if (!mode4) setMode4(true); };
+const setWin = document.getElementById("setWin");
+function setSettings(open){
+    setWin.classList.toggle("open", open);
+    document.getElementById("bSet").classList.toggle("green", open);
+}
+document.getElementById("bSet").onclick = () => setSettings(!setWin.classList.contains("open"));
+document.getElementById("setClose").onclick = () => setSettings(false);
+
+// 上の帯のあらまし
+const dbTxt = v => (v >= 0 ? "+" : "") + v.toFixed(1);
+function updSummary(){
+    if (!summaryReady) return;
+    const o1 = micSelect.options[micSelect.selectedIndex];
+    document.getElementById("sum1Dev").innerText = o1 ? o1.text : "--";
+    document.getElementById("sum1Inf").innerText = inputMode === "mono" ? "LL" : "LR";
+    document.getElementById("sum1Gn").innerText = "L " + dbTxt(gainLdB) + " / R " + dbTxt(gainRdB) + " dB";
+    const b1 = document.getElementById("sum1Bd");
+    b1.style.display = lrShift !== 0 ? "" : "none"; b1.innerText = "L/R補正 " + (lrShift > 0 ? "+" : "") + lrShift;
+    const s2 = document.getElementById("micSelect2"), o2 = s2.options[s2.selectedIndex];
+    document.getElementById("sum2Dev").innerText = o2 && s2.value ? o2.text : "（なし）";
+    document.getElementById("sum2Inf").innerText = in2.mono ? "LL" : "LR";
+    document.getElementById("sum2Gn").innerText = "L " + dbTxt(in2.gainLdB) + " / R " + dbTxt(in2.gainRdB) + " dB";
+    const b2 = document.getElementById("sum2Bd");
+    b2.style.display = in2.shift !== 0 ? "" : "none"; b2.innerText = "L/R補正 " + (in2.shift > 0 ? "+" : "") + in2.shift;
+}
+micSelect.addEventListener("change", updSummary);
+
+// INPUT 2 (VU だけ。ブラウザで開いたときだけ使える)
+const in2 = { stream: null, nodes: [], gL: null, gR: null, dL: null, dR: null, anaL: null, anaR: null,
+              mono: false, shift: 0, gainLdB: 0, gainRdB: 0, gainROff: 0, trL: null, trR: null, bufL: null, bufR: null, token: 0 };
+function in2Stop(){
+    in2.token++;
+    in2.nodes.forEach(n => { try { n.disconnect(); } catch (e) {} });
+    in2.nodes = [];
+    if (in2.stream && in2.stream.getTracks) in2.stream.getTracks().forEach(t => t.stop());
+    in2.stream = null; in2.gL = in2.gR = in2.dL = in2.dR = in2.anaL = in2.anaR = null; in2.trL = in2.trR = null;
+    if (!NATIVE) setText("card2Inf", mode4 ? (document.getElementById("micSelect2").value ? "" : "機器を選んでください") : "4連のときに使う");
+}
+function in2Apply(){
+    if (in2.gL) in2.gL.gain.value = Math.pow(10, in2.gainLdB / 20);
+    if (in2.gR) in2.gR.gain.value = Math.pow(10, in2.gainRdB / 20);
+    if (in2.dL) { const sr = in2.dL.context.sampleRate; in2.dL.delayTime.value = in2.shift > 0 ? in2.shift / sr : 0; in2.dR.delayTime.value = in2.shift < 0 ? -in2.shift / sr : 0; }
+    updSummary();
+}
+async function in2Start(){
+    in2Stop();
+    const id = document.getElementById("micSelect2").value;
+    if (NATIVE || !audioCtx || !mode4 || !id) return;
+    const my = in2.token;
+    let st;
+    try {
+        st = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: { exact: id }, channelCount: { ideal: 2 },
+            echoCancellation: false, noiseSuppression: false, autoGainControl: false, latency: { ideal: 0 } } });
+    } catch (e) { setText("card2Inf", "開けませんでした"); return; }
+    if (my !== in2.token || !audioCtx) { st.getTracks().forEach(t => t.stop()); return; }
+    in2.stream = st;
+    const tr = st.getAudioTracks()[0], set = tr && tr.getSettings ? tr.getSettings() : {};
+    const src = audioCtx.createMediaStreamSource(st), split = audioCtx.createChannelSplitter(2), merge = audioCtx.createChannelMerger(2), sp2 = audioCtx.createChannelSplitter(2);
+    in2.gL = audioCtx.createGain(); in2.gR = audioCtx.createGain();
+    in2.dL = audioCtx.createDelay(0.01); in2.dR = audioCtx.createDelay(0.01);
+    in2.anaL = audioCtx.createAnalyser(); in2.anaR = audioCtx.createAnalyser();
+    in2.anaL.fftSize = in2.anaR.fftSize = 32768;
+    src.connect(split);
+    split.connect(in2.gL, 0);
+    if (in2.mono) split.connect(in2.gR, 0); else if (set.channelCount !== 1) split.connect(in2.gR, 1);
+    in2.gL.connect(in2.dL); in2.dL.connect(merge, 0, 0);
+    in2.gR.connect(in2.dR); in2.dR.connect(merge, 0, 1);
+    merge.connect(sp2); sp2.connect(in2.anaL, 0); sp2.connect(in2.anaR, 1);
+    in2.nodes = [src, split, in2.gL, in2.gR, in2.dL, in2.dR, merge, sp2, in2.anaL, in2.anaR];
+    in2Apply();
+    const k = v => { const x = v / 1000; return Number.isInteger(x) ? String(x) : x.toFixed(1); };
+    setText("card2Inf", "IN " + (set.sampleRate ? k(set.sampleRate) + ">" : "") + k(audioCtx.sampleRate) + "k " + (set.channelCount || "?") + "ch");
+}
+document.getElementById("micSelect2").addEventListener("change", () => { in2Start(); updSummary(); });
+function in2Mono(m){
+    in2.mono = m;
+    document.getElementById("mode2Stereo").classList.toggle("on", !m);
+    document.getElementById("mode2Mono").classList.toggle("on", m);
+    if (in2.stream) in2Start(); else updSummary();
+}
+document.getElementById("mode2Stereo").onclick = () => in2Mono(false);
+document.getElementById("mode2Mono").onclick = () => in2Mono(true);
+// INPUT 2 のレベル (INPUT 1 と同じ: 左のスライダーは L と R の両方、右は R だけ)
+function in2SetRSliders(db){
+    db = Math.max(-21, Math.min(21, db));
+    const c = Math.max(-20, Math.min(20, Math.round(db)));
+    const f = Math.max(-1, Math.min(1, Math.round((db - c) * 10) / 10));
+    document.getElementById("g2CR").value = c + 20; document.getElementById("g2FR").value = f;
+}
+function in2Main(){
+    in2.gainLdB = sliderDb("g2C", "g2F");
+    in2SetRSliders(in2.gainLdB + in2.gainROff);
+    in2.gainRdB = sliderDb("g2CR", "g2FR");
+    in2Texts(); in2Apply();
+}
+function in2R(){
+    in2.gainRdB = sliderDb("g2CR", "g2FR");
+    in2.gainROff = in2.gainRdB - in2.gainLdB;
+    in2Texts(); in2Apply();
+}
+function in2Texts(){
+    document.getElementById("g2Val").innerText = dbTxt(in2.gainLdB) + " dB";
+    document.getElementById("g2ValR").innerText = "R " + dbTxt(in2.gainRdB) + " dB";
+}
+["g2C", "g2F"].forEach(id => document.getElementById(id).addEventListener("input", in2Main));
+["g2CR", "g2FR"].forEach(id => document.getElementById(id).addEventListener("input", in2R));
+function in2Shift(v){
+    in2.shift = Math.max(-LR_MAX, Math.min(LR_MAX, v));
+    document.getElementById("lr2Val").innerText = (in2.shift > 0 ? "+" : "") + in2.shift;
+    document.getElementById("lr2Row").classList.toggle("active", in2.shift !== 0);
+    in2Apply();
+}
+document.getElementById("lr2Minus").onclick = () => in2Shift(in2.shift - 1);
+document.getElementById("lr2Plus").onclick = () => in2Shift(in2.shift + 1);
+
+// キー: スペース = ラウドネス START / RESET、V = 2連/4連、R か L = RTA/LOUDNESS
+document.addEventListener("keydown", e => {
+    if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+    const tag = (e.target && e.target.tagName) || "";
+    if (tag === "SELECT" || (tag === "INPUT" && e.target.type !== "range")) return;
+    if (e.code === "Space") {
+        e.preventDefault();
+        if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+        if (!loudRun) { loudRun = true; loudRunBlocks = 0; updStart(); } else loudReset();
+    } else if (e.code === "KeyV") setMode4(!mode4);
+    else if (e.code === "KeyR" || e.code === "KeyL") setRtaMode(rtaMode === "rta" ? "loud" : "rta");
+});
+// ボタンを押したあとにスペースを押しても、そのボタンがもう一度押されないように
+document.addEventListener("click", e => { const b = e.target.closest && e.target.closest("button"); if (b) b.blur(); });
+summaryReady = true;
+updStart();
+updSummary();
+in2Texts();
 
 async function getDevices() {
     if (NATIVE) {
@@ -898,16 +999,25 @@ async function getDevices() {
             opt.value = d.id; opt.text = d.name;
             micSelect.appendChild(opt);
         });
+        // アプリの中では INPUT 2 は使えない (アプリが受け取るのは1つの機器だけ)
+        document.getElementById("micSelect2").innerHTML = '<option value="">（このアプリでは使えません）</option>';
+        document.getElementById("micSelect2").disabled = true;
+        updSummary();
         return;
     }
     const devices = await navigator.mediaDevices.enumerateDevices();
     micSelect.innerHTML = '';
+    const sel2 = document.getElementById("micSelect2"), keep2 = sel2.value;
+    sel2.innerHTML = '<option value="">（なし）</option>';
     devices.filter(d => d.kind === 'audioinput').forEach(d => {
         const opt = document.createElement('option');
         opt.value = d.deviceId;
         opt.text = d.label || `Microphone ${micSelect.length + 1}`;
         micSelect.appendChild(opt);
+        sel2.appendChild(opt.cloneNode(true));
     });
+    sel2.value = keep2;
+    updSummary();
 }
 
 if (NATIVE) getDevices();
@@ -917,7 +1027,7 @@ else navigator.mediaDevices.getUserMedia({ audio: true }).then(s => {
 });
 
 btn.onclick = async () => {
-    if (audioCtx) { if (NATIVE) NativeAudio.stop(); applyInputRoute = null; lrDelayL = lrDelayR = null; inGainL = inGainR = null; audioCtx.close(); audioCtx = null; btn.innerText = "POWER OFF"; btn.classList.remove("on"); return; }
+    if (audioCtx) { in2Stop(); if (NATIVE) NativeAudio.stop(); applyInputRoute = null; lrDelayL = lrDelayR = null; inGainL = inGainR = null; audioCtx.close(); audioCtx = null; btn.innerText = "POWER OFF"; btn.classList.remove("on"); return; }
     
     // 遅れをできるだけ小さくするよう、ブラウザに要求する (聞いてくれるかは機種しだい)
     const AC = window.AudioContext || window.webkitAudioContext;
@@ -958,6 +1068,7 @@ btn.onclick = async () => {
     }
     
     btn.innerText = "POWER ON"; btn.classList.add("on");
+    setTimeout(in2Start, 0);
     keepAwake();
 
     // ブラウザが報告している遅れを表示する (報告しないブラウザでは -- になる)
@@ -974,6 +1085,7 @@ btn.onclick = async () => {
     const showLatency = () => {
         if (!audioCtx) return;
         setText("latVal", latHead + " / " + keepAwakeState);
+        setText("card1Inf", latHead);
     };
     showLatency();
     const latTimer = setInterval(() => { if (!audioCtx) clearInterval(latTimer); else showLatency(); }, 2000);
@@ -1322,6 +1434,20 @@ vuCarry -= Math.floor(vuCarry);
         document.getElementById("ndlL").style.transform = `rotate(${90-currentL}deg)`;
         document.getElementById("ndlR").style.transform = `rotate(${90-currentR}deg)`;
 
+        // INPUT 2 (4連のときだけ)
+        if (in2.anaL && mode4) {
+            if (!in2.trL) { in2.trL = makeVuTrace(); in2.trR = makeVuTrace(); in2.bufL = new Float32Array(32768); in2.bufR = new Float32Array(32768); }
+            in2.anaL.getFloatTimeDomainData(in2.bufL); in2.anaR.getFloatTimeDomainData(in2.bufR);
+            const adv = vuFrames / VU_REF_FPS * audioCtx.sampleRate;
+            const a3 = dbToAngle(Math.max(-200, Math.min(3, 20 * Math.log10(vuNeedle(in2.trL, in2.bufL, adv) || 0.00001) + VU_CAL)));
+            const a4 = dbToAngle(Math.max(-200, Math.min(3, 20 * Math.log10(vuNeedle(in2.trR, in2.bufR, adv) || 0.00001) + VU_CAL)));
+            document.getElementById("ndl3").style.transform = `rotate(${90-a3}deg)`;
+            document.getElementById("ndl4").style.transform = `rotate(${90-a4}deg)`;
+        } else if (mode4) {
+            document.getElementById("ndl3").style.transform = `rotate(${90-START_DEG}deg)`;
+            document.getElementById("ndl4").style.transform = `rotate(${90-START_DEG}deg)`;
+        }
+
         if (vuNow - scopeLastT >= 1000 / SCOPE_FPS * 0.85) {
             scopeLastT = vuNow;
             anaMid.getFloatTimeDomainData(bufMid);
@@ -1406,6 +1532,7 @@ const rtaLoNew = rtaNow - rtaLoT >= RTA_LO_MS;
 if (rtaHiNew) { rtaHiT = rtaNow; rtaAnalyser.getFloatFrequencyData(rtaData); }
 if (rtaLoNew) { rtaLoT = rtaNow; rtaAnalyserLow.getFloatFrequencyData(rtaDataLow); }
 
+const rtaYB = rtaCanvas.height - 40;   // バーの下端
 rtaCtx.clearRect(
     0,
     0,
@@ -1461,7 +1588,7 @@ guide.forEach(g=>{
 
     rtaCtx.lineTo(
         freqX(g.f),
-        220
+        rtaYB
     );
 
     rtaCtx.stroke();
@@ -1496,12 +1623,12 @@ for (const band of rtaBandList) {
 
     const db = 10 * Math.log10(band.p + 1e-12);
 
-    const h = Math.max(0, Math.min(220,
-        (db - RTA_BOTTOM) / (RTA_TOP - RTA_BOTTOM) * 220));
+    const h = Math.max(0, Math.min(rtaYB,
+        (db - RTA_BOTTOM) / (RTA_TOP - RTA_BOTTOM) * rtaYB));
 
     rtaCtx.fillRect(
         freqX(band.fc) - rtaBarW / 2,
-        220 - h,
+        rtaYB - h,
         rtaBarW,
         h
     );
@@ -1522,13 +1649,13 @@ rtaCtx.lineWidth = 1;
 rtaCtx.beginPath();
 for (let k = -17; k <= 13; k++) {
     const x = Math.round(freqX(1000 * Math.pow(2, k / 3))) + 0.5;
-    rtaCtx.moveTo(x, 221);
-    rtaCtx.lineTo(x, k % 3 === 0 ? 229 : 225);
+    rtaCtx.moveTo(x, rtaYB + 1);
+    rtaCtx.lineTo(x, k % 3 === 0 ? rtaYB + 9 : rtaYB + 5);
 }
 rtaCtx.stroke();
 
 rtaLabels.forEach(l => {
-    rtaCtx.fillText(l[1], freqX(rtaSnap(l[0])), 245);
+    rtaCtx.fillText(l[1], freqX(rtaSnap(l[0])), rtaCanvas.height - 15);
 });
         requestAnimationFrame(loop);
     }
