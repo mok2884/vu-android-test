@@ -1,8 +1,10 @@
 Windows 版の作り方 (Linux で zig を使って作る)
 pip install ziglang
 
-全部入り (VU_METER.exe):
-python3 -m ziglang c++ -target x86_64-windows-gnu -O2 -std=c++17 -o VU_METER.exe vu_meter_win.cpp -lole32 -luuid -ld3d11 -ldxgi -ld2d1 -ldwrite -lwinmm -luser32 -lgdi32 -Wl,--subsystem,windows
+全部入り (VU_METER.exe)。アイコン (vu.ico) は vu.rc で入れる:
+python3 -m ziglang c++ -target x86_64-windows-gnu -O2 -std=c++17 -o VU_METER.exe vu_meter_win.cpp vu.rc -lole32 -luuid -ld3d11 -ldxgi -ld2d1 -ldwrite -lwinmm -luser32 -lgdi32 -Wl,--subsystem,windows
 
 VU だけ (VU_WIN.exe):
 python3 -m ziglang c++ -target x86_64-windows-gnu -O2 -std=c++17 -o VU_WIN.exe vu_win.cpp -lole32 -luuid -ld3d11 -ldxgi -ld2d1 -ldwrite -lwinmm -luser32 -lgdi32 -Wl,--subsystem,windows
+
+アイコンの元絵は icon.svg (Android の VU METER と同じ)。vu.ico は 16〜256px の PNG をまとめたもの

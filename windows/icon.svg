@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="18 18 72 72" width="256" height="256">
+<defs><radialGradient id="g" gradientUnits="userSpaceOnUse" cx="54" cy="80" r="62"><stop offset="0" stop-color="#FFF7DC"/><stop offset="0.45" stop-color="#F3E3B0"/><stop offset="1" stop-color="#C9A862"/></radialGradient>
+<clipPath id="c"><rect x="18" y="18" width="72" height="72" rx="14"/></clipPath></defs>
+<g clip-path="url(#c)">
+<rect x="0" y="0" width="108" height="108" fill="url(#g)"/>
+<path stroke="#23211C" stroke-width="1.6" fill="none" d="M27.80,53.95 A21,21 0 0 1 51.12,45.91"/>
+<path stroke="#D63A2E" stroke-width="4.4" fill="none" d="M51.53,44.57 A22.4,22.4 0 0 1 63.35,53.15"/>
+<path fill="#23211C" d="M42.78,66.61 L37.61,41.07 L38.58,40.80 L47.22,65.39 Q45.67,68.44 42.78,66.61 Z"/>
+<path fill="#262A31" d="M70.2,37 L78.8,37 A3.2,3.2 0 0 1 82,40.2 L82,70.8 A3.2,3.2 0 0 1 78.8,74 L70.2,74 A3.2,3.2 0 0 1 67,70.8 L67,40.2 A3.2,3.2 0 0 1 70.2,37 Z"/>
+<path fill="#3A3F47" d="M70.6,40.5 L72.2,40.5 A1.2,1.2 0 0 1 73.4,41.7 L73.4,69.3 A1.2,1.2 0 0 1 72.2,70.5 L70.6,70.5 A1.2,1.2 0 0 1 69.4,69.3 L69.4,41.7 A1.2,1.2 0 0 1 70.6,40.5 Z"/>
+<path fill="#3DDC97" d="M69.4,52.50 L73.4,52.50 L73.4,70.50 L69.4,70.50 Z"/>
+<path fill="#F2C94C" d="M69.4,45.90 L73.4,45.90 L73.4,52.50 L69.4,52.50 Z"/>
+<path fill="#D63A2E" d="M69.4,44.70 L73.4,44.70 L73.4,45.90 L69.4,45.90 Z"/>
+<path fill="#3A3F47" d="M76.8,40.5 L78.4,40.5 A1.2,1.2 0 0 1 79.6,41.7 L79.6,69.3 A1.2,1.2 0 0 1 78.4,70.5 L76.8,70.5 A1.2,1.2 0 0 1 75.6,69.3 L75.6,41.7 A1.2,1.2 0 0 1 76.8,40.5 Z"/>
+<path fill="#3DDC97" d="M75.6,52.50 L79.6,52.50 L79.6,70.50 L75.6,70.50 Z"/>
+<path fill="#F2C94C" d="M75.6,50.70 L79.6,50.70 L79.6,52.50 L75.6,52.50 Z"/>
+</g></svg>
