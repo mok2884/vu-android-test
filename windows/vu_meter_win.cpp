@@ -492,11 +492,11 @@ static bool gLayerDirty = true;
 static double gFps = 0; static int gHz = 60;
 static double gWorkMs = 0, gLayerMs = 0;   // 1回の描画にかかった時間、針以外の部分を描くのにかかった時間 (ms、ならし)
 // 画面の出し方 (W キーで切り替えて見比べる)
-//  0 = 前と同じ (画面の準備を最大100ms待つ、待ちなし)
-//  1 = 待つのはモニターの書き換え1回分まで、待ちなし
-//  2 = なめらか (モニターの書き換えに合わせて出す。針は切れないが、少し遅れる)
+//  0 = A 待ちなし (画面の準備を最大100ms待つ。いちばん遅れが小さい)
+//  2 = C なめらか (モニターの書き換えに合わせて出す。針は切れないが、少し遅れる)
+//  (1 = 待つのを書き換え1回分までにする出し方は、針が途中で止まって見えたのでやめた)
 static int gShowMode = 0;
-static const wchar_t* showModeName(){ return gShowMode == 0 ? L"出し方A" : gShowMode == 1 ? L"出し方B" : L"出し方C なめらか"; }
+static const wchar_t* showModeName(){ return gShowMode == 0 ? L"出し方A 待ちなし" : L"出し方C なめらか"; }
 static bool heavy(){ return gFps > 0 && gWorkMs > 1000.0 / gFps * 0.6; }   // 描くのに時間がかかって回数が出ていない
 static bool gHelp = true;
 
@@ -1092,7 +1092,7 @@ static void drawLayer(){
     if (gSet) settingsWindow(rt);
 
     rt->SetTransform(D2D1::Matrix3x2F::Identity());
-    if (gHelp) textB(rt, L"SPACE ラウドネス START / RESET   V 2連/4連   R・L RTA/LOUDNESS   W 画面の出し方 (A/B/C)   ピンチで拡大縮小・2本指で移動   0 表示を元に戻す   F 全画面/ウィンドウ   H この表示を消す   Esc 終了",
+    if (gHelp) textB(rt, L"SPACE ラウドネス START / RESET   V 2連/4連   R・L RTA/LOUDNESS   W 画面の出し方 (A/C)   ピンチで拡大縮小・2本指で移動   0 表示を元に戻す   F 全画面/ウィンドウ   H この表示を消す   Esc 終了",
                      11, false, 0, 12, (float)gH - 4, br(0x666666));
     rt->EndDraw();
     gLayerDirty = false;
@@ -1334,7 +1334,7 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l){
         case 'V': if (!(l & 0x40000000)) setMode4(!g4); return 0;
         case 'R': case 'L': if (!(l & 0x40000000)) { rtaMode = !rtaMode; gLayerDirty = true; } return 0;
         case 'F': setFull(!gFull); return 0;
-        case 'W': if (!(l & 0x40000000)) { gShowMode = (gShowMode + 1) % 3; EnterCriticalSection(&gStallCs); gStalls.clear(); LeaveCriticalSection(&gStallCs); gLayerDirty = true; } return 0;
+        case 'W': if (!(l & 0x40000000)) { gShowMode = gShowMode == 0 ? 2 : 0; EnterCriticalSection(&gStallCs); gStalls.clear(); LeaveCriticalSection(&gStallCs); gLayerDirty = true; } return 0;
         case '0': case VK_NUMPAD0: case VK_HOME: resetView(); return 0;
         case 'H': gHelp = !gHelp; gLayerDirty = true; return 0;
         case VK_OEM_PLUS: case VK_ADD: zoomAt(gW / 2.f, gH / 2.f, 1.15f); return 0;
