@@ -1103,8 +1103,8 @@ static void createTargets();
 static void render(){
     if (!gRT || !gLayer) return;
     static double lastLayer = 0; double now = nowMs();
-    // 針以外は1秒60回。それを描くのが重いPCでは1秒30回にして、針の回数を守る
-    const double layerGap = gLayerMs > 6 ? 1000.0 / 30 : 1000.0 / 60;
+    // 針以外は1秒60回 (重いPCで30回に落とす作りは、針の動きがパタつくのでやめた)
+    const double layerGap = 1000.0 / 60;
     if (gLayerDirty || now - lastLayer >= layerGap * 0.85) {
         lastLayer = now; drawLayer();
         double t = nowMs() - now; gLayerMs = gLayerMs * 0.9 + t * 0.1;
