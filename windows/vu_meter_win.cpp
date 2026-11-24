@@ -477,6 +477,8 @@ static int gW = 0, gH = 0;
 static float gFaceKey = 0, gScopeKey = 0;
 static bool gLayerDirty = true;
 static double gFps = 0; static int gHz = 60;
+static double gWorkMs = 0, gLayerMs = 0;   // 1回の描画にかかった時間、針以外の部分を描くのにかかった時間 (ms、ならし)
+static bool heavy(){ return gFps > 0 && gWorkMs > 1000.0 / gFps * 0.6; }   // 描くのに時間がかかって回数が出ていない
 static bool gHelp = true;
 
 static float vS = 1, vX = 0, vY = 0;
@@ -514,9 +516,14 @@ static void textB(ID2D1RenderTarget* rt, const wchar_t* s, float size, bool bold
 static void textT(ID2D1RenderTarget* rt, const wchar_t* s, float size, bool bold, int align, float x, float top, ID2D1Brush* b, float maxW = 0){
     textB(rt, s, size, bold, align, x, top + size * 0.921f, b, maxW);
 }
+static std::vector<std::pair<std::wstring, float>> gTW;   // 文字の幅を覚えておく (毎回はかると重い)
 static float textWidth(const wchar_t* s, float size, bool bold){
+    std::wstring key = std::wstring(s) + (bold ? L"\x01" : L"\x02") + std::to_wstring((int)(size * 10));
+    for (auto& e : gTW) if (e.first == key) return e.second;
     IDWriteTextLayout* lay = nullptr; float w = 0;
     if (SUCCEEDED(gDW->CreateTextLayout(s, (UINT32)wcslen(s), fmt(size, bold, 0), 4000, 100, &lay))) { DWRITE_TEXT_METRICS m; lay->GetMetrics(&m); w = m.widthIncludingTrailingWhitespace; lay->Release(); }
+    if (gTW.size() > 400) gTW.clear();
+    gTW.push_back({key, w});
     return w;
 }
 static D2D1_RECT_F RF(const Rc& r){ return D2D1::RectF(r.x, r.y, r.r(), r.b()); }
@@ -731,7 +738,18 @@ static void drawRta(ID2D1RenderTarget* rt, float W, float H){
 
 static const struct { double lk; unsigned c; } LOUD_COLORS[] = {
     {-49,0x2d7d96},{-43,0x37a55f},{-35,0x55af55},{-28,0x96c33c},{-24,0xe8ca2d},{-19,0xecaa2d},{-14,0xde3a2a} };
+struct GradCache { ID2D1RenderTarget* rt; float yBot, yTop; ID2D1LinearGradientBrush* g; };
+static std::vector<GradCache> gGrads;
+static void releaseGrads(){ for (auto& c : gGrads) SafeRelease(c.g); gGrads.clear(); }
+static ID2D1LinearGradientBrush* makeLoudGrad(ID2D1RenderTarget* rt, float yBot, float yTop);
+// 同じ形のグラデーションは作り置きを使う (毎回作ると重い)
 static ID2D1LinearGradientBrush* loudGrad(ID2D1RenderTarget* rt, float yBot, float yTop){
+    for (auto& c : gGrads) if (c.rt == rt && c.yBot == yBot && c.yTop == yTop) return c.g;
+    ID2D1LinearGradientBrush* g = makeLoudGrad(rt, yBot, yTop);
+    gGrads.push_back({rt, yBot, yTop, g});
+    return g;
+}
+static ID2D1LinearGradientBrush* makeLoudGrad(ID2D1RenderTarget* rt, float yBot, float yTop){
     D2D1_GRADIENT_STOP st[7];
     for (int i = 0; i < 7; i++) { st[i].position = (float)std::max(0.0, std::min(1.0, (LOUD_COLORS[i].lk - LOUD_MIN) / (LOUD_MAX - LOUD_MIN))); st[i].color = rgb(LOUD_COLORS[i].c); }
     ID2D1GradientStopCollection* col = nullptr; rt->CreateGradientStopCollection(st, 7, &col);
@@ -761,7 +779,7 @@ static void drawLoudHistory(ID2D1RenderTarget* rt, const std::vector<float>& his
     s->AddLine(last); s->AddLine(D2D1::Point2F(x1, last.y)); s->AddLine(D2D1::Point2F(x1, yBot));
     s->EndFigure(D2D1_FIGURE_END_CLOSED); s->Close(); s->Release();
     ID2D1LinearGradientBrush* grad = loudGrad(rt, yBot, yTop);
-    rt->FillGeometry(g, grad); SafeRelease(grad); g->Release();
+    rt->FillGeometry(g, grad); g->Release();
     rt->DrawLine(D2D1::Point2F(x0, yOf(LOUD_TARGET)), D2D1::Point2F(x1, yOf(LOUD_TARGET)), br(0xffffff, 0.8f), 1);
     textB(rt, L"-24", 12, false, 2, x0 - 6, yOf(LOUD_TARGET) + 4, br(0xffffff));
     for (int m = 0; m <= LOUD_HIST_MIN; m += 3) {
@@ -824,7 +842,13 @@ static int monitorHz(){
     return 60;
 }
 static double waitThreshold(){ return std::min(gHz * 1.5, 200.0); }
-static bool onBattery(){ SYSTEM_POWER_STATUS ps; return GetSystemPowerStatus(&ps) && ps.ACLineStatus == 0; }
+// 電池かどうか (調べるのに時間がかかることがあるので、2秒に1回だけ調べる)
+static bool onBattery(){
+    static double last = -1e9; static bool bat = false;
+    double now = nowMs();
+    if (now - last > 2000) { last = now; SYSTEM_POWER_STATUS ps; bat = GetSystemPowerStatus(&ps) && ps.ACLineStatus == 0; }
+    return bat;
+}
 
 // ===== 部品のまとまり =====
 static std::wstring devName(int i){ return (gIn[i].dev >= 0 && gIn[i].dev < (int)gDevs.size()) ? gDevs[gIn[i].dev].name : (i == 0 ? L"-- 入力機器なし --" : L"（なし）"); }
@@ -861,7 +885,6 @@ static void loudBars(ID2D1RenderTarget* rt, const Rc* tr, double M, double S, fl
         float ty = (float)(t.b() - (LOUD_TARGET - LOUD_MIN) / (LOUD_MAX - LOUD_MIN) * t.h);
         rt->FillRectangle(D2D1::RectF(t.x - 4, ty - 1, t.r() + 4, ty + 1), br(0xffffff));
     }
-    SafeRelease(grad);
 }
 
 // タブ、TP、積算、START/STOP/RESET の1列。x0 = 左端、y = 上端
@@ -999,12 +1022,15 @@ static void drawLayer(){
     rt->FillRectangle(D2D1::RectF(426, 35, 427, 65), br(0x333333));
     if (g4) { statusLine(rt, 0, 46); statusLine(rt, 1, 64); } else statusLine(rt, 0, 55);
     {
-        const bool wait = gFull && !(gTearing && gFps > waitThreshold());
-        wchar_t m[64];
-        swprintf(m, 64, L"%ls %.0f回/秒", !gFull ? L"ウィンドウ" : wait ? L"待ちあり" : L"待ちなし", gFps);
-        unsigned col = (gFull && wait) ? 0xe6463c : (gFps < 120 && gFull) ? 0xe8c430 : 0x8a8a8a;
-        textB(rt, m, 12, gFull && wait, 2, 1398, 55, br(col));
-        if (onBattery()) { float mw = textWidth(m, 12, gFull && wait); textB(rt, L"電池で動作中", 12, true, 2, 1398 - mw - 14, 55, br(0xec9a2d)); }
+        // 待ちあり (Windows のまとめ役を通っている) は赤。描くのが重くて回数が出ないときは黄色
+        const bool slow = gFull && !(gTearing && gFps > waitThreshold());
+        const bool hv = slow && heavy();
+        const bool wait = slow && !hv;
+        wchar_t m[96];
+        swprintf(m, 96, L"%ls %.0f回/秒 (1回 %.1fms)", !gFull ? L"ウィンドウ" : wait ? L"待ちあり" : hv ? L"描くのが重い" : L"待ちなし", gFps, gWorkMs);
+        unsigned col = wait ? 0xe6463c : (gFull && (hv || gFps < 120)) ? 0xe8c430 : 0x8a8a8a;
+        textB(rt, m, 12, wait || hv, 2, 1398, 55, br(col));
+        if (onBattery()) { float mw = textWidth(m, 12, wait || hv); textB(rt, L"電池で動作中", 12, true, 2, 1398 - mw - 14, 55, br(0xec9a2d)); }
     }
 
     if (!g4) {
@@ -1047,7 +1073,12 @@ static void createTargets();
 static void render(){
     if (!gRT || !gLayer) return;
     static double lastLayer = 0; double now = nowMs();
-    if (gLayerDirty || now - lastLayer >= 1000.0 / 60 * 0.85) { lastLayer = now; drawLayer(); }
+    // 針以外は1秒60回。それを描くのが重いPCでは1秒30回にして、針の回数を守る
+    const double layerGap = gLayerMs > 6 ? 1000.0 / 30 : 1000.0 / 60;
+    if (gLayerDirty || now - lastLayer >= layerGap * 0.85) {
+        lastLayer = now; drawLayer();
+        double t = nowMs() - now; gLayerMs = gLayerMs * 0.9 + t * 0.1;
+    }
     gRT->BeginDraw();
     gRT->SetTransform(D2D1::Matrix3x2F::Identity());
     ID2D1Bitmap* lb = nullptr; gLayer->GetBitmap(&lb);
@@ -1071,9 +1102,10 @@ static void render(){
     HRESULT hr = gRT->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) createTargets();
     gSwap->Present(0, (gTearing && gFull) ? DXGI_PRESENT_ALLOW_TEARING : 0);
+    gWorkMs = gWorkMs * 0.95 + (nowMs() - now) * 0.05;
 }
 
-static void releaseTargets(){ SafeRelease(gFace); SafeRelease(gScope); SafeRelease(gLayer); SafeRelease(gB); SafeRelease(gRT); gFaceKey = gScopeKey = 0; }
+static void releaseTargets(){ releaseGrads(); SafeRelease(gFace); SafeRelease(gScope); SafeRelease(gLayer); SafeRelease(gB); SafeRelease(gRT); gFaceKey = gScopeKey = 0; }
 static void createTargets(){
     releaseTargets();
     IDXGISurface* surf = nullptr;
@@ -1315,7 +1347,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int){
             gFps = frames / dt; frames = 0; t0 = t;
             // 全画面なのに「待ちあり」が3秒続いたら、画面を作り直して「待ちなし」に戻す (続けて3回まで)
             double now = nowMs();
-            bool slow = gFull && gTearing && gFps <= waitThreshold() && GetForegroundWindow() == gWnd;
+            bool slow = gFull && gTearing && gFps <= waitThreshold() && !heavy() && GetForegroundWindow() == gWnd;
             if (!slow) { slowSince = -1; if (gFps > waitThreshold()) fixes = 0; }
             else if (slowSince < 0) slowSince = now;
             else if (now - slowSince > 3000 && now - lastFix > 10000 && fixes < 3) { rebuildSwap(); lastFix = now; slowSince = -1; fixes++; }
