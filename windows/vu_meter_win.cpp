@@ -172,6 +172,17 @@ static const int RING = 1 << 17;
 static float gRingL[RING], gRingR[RING];
 static std::atomic<unsigned long long> gRingW{0};
 static std::atomic<int> gSr{48000};
+// 止まりの記録 (直近1分)。音の受け取りが40ms以上とぎれた時刻と長さ
+static CRITICAL_SECTION gStallCs;
+struct Stall { double at, ms; bool audio; };
+static std::vector<Stall> gStalls;
+static double qpcMs(){ static LARGE_INTEGER f{}; if (!f.QuadPart) QueryPerformanceFrequency(&f); LARGE_INTEGER t; QueryPerformanceCounter(&t); return t.QuadPart * 1000.0 / f.QuadPart; }
+static void addStall(double ms, bool audio){
+    EnterCriticalSection(&gStallCs);
+    double now = qpcMs(); gStalls.push_back({now, ms, audio});
+    while (!gStalls.empty() && now - gStalls.front().at > 60000) gStalls.erase(gStalls.begin());
+    LeaveCriticalSection(&gStallCs);
+}
 
 struct Input {
     // 音のスレッドと共有する値
@@ -353,8 +364,10 @@ static void audioMain(int idx, std::wstring devId, bool exclusive){
         unsigned long long w = gRingW.load();
 
         ac->Start();
+        double lastPkt = -1;
         while (in.run.load()) {
             if (WaitForSingleObject(ev, 200) != WAIT_OBJECT_0) continue;
+            { double now = qpcMs(); if (lastPkt > 0 && now - lastPkt > 40) addStall(now - lastPkt, true); lastPkt = now; }
             UINT32 pk = 0;
             while (SUCCEEDED(cc->GetNextPacketSize(&pk)) && pk > 0) {
                 BYTE* data = nullptr; UINT32 fr = 0; DWORD fl = 0;
@@ -1028,9 +1041,20 @@ static void drawLayer(){
         const bool wait = slow && !hv;
         wchar_t m[96];
         swprintf(m, 96, L"%ls %.0f回/秒 (1回 %.1fms)", !gFull ? L"ウィンドウ" : wait ? L"待ちあり" : hv ? L"描くのが重い" : L"待ちなし", gFps, gWorkMs);
+        // 針が止まった回数 (直近1分。画面の書き換えか音の受け取りが40ms以上とぎれたとき)
+        {
+            int nS = 0, nA = 0; double mx = 0, now = qpcMs();
+            EnterCriticalSection(&gStallCs);
+            for (auto& st : gStalls) if (now - st.at <= 60000) { (st.audio ? nA : nS)++; mx = std::max(mx, st.ms); }
+            LeaveCriticalSection(&gStallCs);
+            wchar_t s2[96];
+            if (nS + nA == 0) swprintf(s2, 96, L"止まり なし");
+            else swprintf(s2, 96, L"止まり %d回 (画面%d 音%d) 最大%.0fms", nS + nA, nS, nA, mx);
+            textB(rt, s2, 11, false, 2, 1398, 66, br(nS + nA ? 0xe8c430 : 0x6a6a6a));
+        }
         unsigned col = wait ? 0xe6463c : (gFull && (hv || gFps < 120)) ? 0xe8c430 : 0x8a8a8a;
-        textB(rt, m, 12, wait || hv, 2, 1398, 55, br(col));
-        if (onBattery()) { float mw = textWidth(m, 12, wait || hv); textB(rt, L"電池で動作中", 12, true, 2, 1398 - mw - 14, 55, br(0xec9a2d)); }
+        textB(rt, m, 12, wait || hv, 2, 1398, 46, br(col));
+        if (onBattery()) { float mw = textWidth(m, 12, wait || hv); textB(rt, L"電池で動作中", 12, true, 2, 1398 - mw - 14, 46, br(0xec9a2d)); }
     }
 
     if (!g4) {
@@ -1317,7 +1341,7 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l){
 int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int){
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
-    InitializeCriticalSection(&gStatusCs); InitializeCriticalSection(&gLoudCs);
+    InitializeCriticalSection(&gStatusCs); InitializeCriticalSection(&gLoudCs); InitializeCriticalSection(&gStallCs);
     initWN(); initTP(); initRta(); onMainGain(0); onMainGain(1);
     timeBeginPeriod(1);
     // 開いている間は、スクリーンセーバーとスリープを止める
@@ -1338,8 +1362,14 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int){
     MSG msg{};
     for (;;) {
         while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) { if (msg.message == WM_QUIT) goto quit; TranslateMessage(&msg); DispatchMessageW(&msg); }
-        if (gWait) WaitForSingleObjectEx(gWait, 100, TRUE);
+        // 画面の準備を待つのは、モニターの書き換え1回分まで (長く待つと針が止まって見える)
+        if (gWait) WaitForSingleObjectEx(gWait, (DWORD)std::max(4, (int)std::ceil(1000.0 / gHz)), TRUE);
         render();
+        {
+            static double lastFrame = -1; double nowF = qpcMs();
+            if (lastFrame > 0 && nowF - lastFrame > 40 && gPower && GetForegroundWindow() == gWnd) addStall(nowF - lastFrame, false);
+            lastFrame = nowF;
+        }
         frames++;
         QueryPerformanceCounter(&t);
         double dt = double(t.QuadPart - t0.QuadPart) / fq.QuadPart;
