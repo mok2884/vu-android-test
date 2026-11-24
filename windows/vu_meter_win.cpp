@@ -491,6 +491,12 @@ static float gFaceKey = 0, gScopeKey = 0;
 static bool gLayerDirty = true;
 static double gFps = 0; static int gHz = 60;
 static double gWorkMs = 0, gLayerMs = 0;   // 1回の描画にかかった時間、針以外の部分を描くのにかかった時間 (ms、ならし)
+// 画面の出し方 (W キーで切り替えて見比べる)
+//  0 = 前と同じ (画面の準備を最大100ms待つ、待ちなし)
+//  1 = 待つのはモニターの書き換え1回分まで、待ちなし
+//  2 = なめらか (モニターの書き換えに合わせて出す。針は切れないが、少し遅れる)
+static int gShowMode = 0;
+static const wchar_t* showModeName(){ return gShowMode == 0 ? L"出し方A" : gShowMode == 1 ? L"出し方B" : L"出し方C なめらか"; }
 static bool heavy(){ return gFps > 0 && gWorkMs > 1000.0 / gFps * 0.6; }   // 描くのに時間がかかって回数が出ていない
 static bool gHelp = true;
 
@@ -1036,11 +1042,11 @@ static void drawLayer(){
     if (g4) { statusLine(rt, 0, 46); statusLine(rt, 1, 64); } else statusLine(rt, 0, 55);
     {
         // 待ちあり (Windows のまとめ役を通っている) は赤。描くのが重くて回数が出ないときは黄色
-        const bool slow = gFull && !(gTearing && gFps > waitThreshold());
+        const bool slow = gFull && gShowMode != 2 && !(gTearing && gFps > waitThreshold());
         const bool hv = slow && heavy();
         const bool wait = slow && !hv;
         wchar_t m[96];
-        swprintf(m, 96, L"%ls %.0f回/秒 (1回 %.1fms)", !gFull ? L"ウィンドウ" : wait ? L"待ちあり" : hv ? L"描くのが重い" : L"待ちなし", gFps, gWorkMs);
+        swprintf(m, 96, L"%ls %.0f回/秒 (1回 %.1fms)", !gFull ? L"ウィンドウ" : gShowMode == 2 ? L"なめらか" : wait ? L"待ちあり" : hv ? L"描くのが重い" : L"待ちなし", gFps, gWorkMs);
         // 針が止まった回数 (直近1分。画面の書き換えか音の受け取りが40ms以上とぎれたとき)
         {
             int nS = 0, nA = 0; double mx = 0, now = qpcMs();
@@ -1048,8 +1054,8 @@ static void drawLayer(){
             for (auto& st : gStalls) if (now - st.at <= 60000) { (st.audio ? nA : nS)++; mx = std::max(mx, st.ms); }
             LeaveCriticalSection(&gStallCs);
             wchar_t s2[96];
-            if (nS + nA == 0) swprintf(s2, 96, L"止まり なし");
-            else swprintf(s2, 96, L"止まり %d回 (画面%d 音%d) 最大%.0fms", nS + nA, nS, nA, mx);
+            if (nS + nA == 0) swprintf(s2, 96, L"%ls (W)   止まり なし", showModeName());
+            else swprintf(s2, 96, L"%ls (W)   止まり %d回 (画面%d 音%d) 最大%.0fms", showModeName(), nS + nA, nS, nA, mx);
             textB(rt, s2, 11, false, 2, 1398, 66, br(nS + nA ? 0xe8c430 : 0x6a6a6a));
         }
         unsigned col = wait ? 0xe6463c : (gFull && (hv || gFps < 120)) ? 0xe8c430 : 0x8a8a8a;
@@ -1086,7 +1092,7 @@ static void drawLayer(){
     if (gSet) settingsWindow(rt);
 
     rt->SetTransform(D2D1::Matrix3x2F::Identity());
-    if (gHelp) textB(rt, L"SPACE ラウドネス START / RESET   V 2連/4連   R・L RTA/LOUDNESS   ピンチで拡大縮小・2本指で移動   0 表示を元に戻す   F 全画面/ウィンドウ   H この表示を消す   Esc 終了",
+    if (gHelp) textB(rt, L"SPACE ラウドネス START / RESET   V 2連/4連   R・L RTA/LOUDNESS   W 画面の出し方 (A/B/C)   ピンチで拡大縮小・2本指で移動   0 表示を元に戻す   F 全画面/ウィンドウ   H この表示を消す   Esc 終了",
                      11, false, 0, 12, (float)gH - 4, br(0x666666));
     rt->EndDraw();
     gLayerDirty = false;
@@ -1125,7 +1131,8 @@ static void render(){
     }
     HRESULT hr = gRT->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) createTargets();
-    gSwap->Present(0, (gTearing && gFull) ? DXGI_PRESENT_ALLOW_TEARING : 0);
+    if (gShowMode == 2) gSwap->Present(1, 0);
+    else gSwap->Present(0, (gTearing && gFull) ? DXGI_PRESENT_ALLOW_TEARING : 0);
     gWorkMs = gWorkMs * 0.95 + (nowMs() - now) * 0.05;
 }
 
@@ -1327,6 +1334,7 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l){
         case 'V': if (!(l & 0x40000000)) setMode4(!g4); return 0;
         case 'R': case 'L': if (!(l & 0x40000000)) { rtaMode = !rtaMode; gLayerDirty = true; } return 0;
         case 'F': setFull(!gFull); return 0;
+        case 'W': if (!(l & 0x40000000)) { gShowMode = (gShowMode + 1) % 3; EnterCriticalSection(&gStallCs); gStalls.clear(); LeaveCriticalSection(&gStallCs); gLayerDirty = true; } return 0;
         case '0': case VK_NUMPAD0: case VK_HOME: resetView(); return 0;
         case 'H': gHelp = !gHelp; gLayerDirty = true; return 0;
         case VK_OEM_PLUS: case VK_ADD: zoomAt(gW / 2.f, gH / 2.f, 1.15f); return 0;
@@ -1363,7 +1371,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int){
     for (;;) {
         while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) { if (msg.message == WM_QUIT) goto quit; TranslateMessage(&msg); DispatchMessageW(&msg); }
         // 画面の準備を待つのは、モニターの書き換え1回分まで (長く待つと針が止まって見える)
-        if (gWait) WaitForSingleObjectEx(gWait, (DWORD)std::max(4, (int)std::ceil(1000.0 / gHz)), TRUE);
+        if (gWait) WaitForSingleObjectEx(gWait, gShowMode == 1 ? (DWORD)std::max(4, (int)std::ceil(1000.0 / gHz)) : 100, TRUE);
         render();
         {
             static double lastFrame = -1; double nowF = qpcMs();
@@ -1377,7 +1385,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int){
             gFps = frames / dt; frames = 0; t0 = t;
             // 全画面なのに「待ちあり」が3秒続いたら、画面を作り直して「待ちなし」に戻す (続けて3回まで)
             double now = nowMs();
-            bool slow = gFull && gTearing && gFps <= waitThreshold() && !heavy() && GetForegroundWindow() == gWnd;
+            bool slow = gFull && gTearing && gShowMode != 2 && gFps <= waitThreshold() && !heavy() && GetForegroundWindow() == gWnd;
             if (!slow) { slowSince = -1; if (gFps > waitThreshold()) fixes = 0; }
             else if (slowSince < 0) slowSince = now;
             else if (now - slowSince > 3000 && now - lastFix > 10000 && fixes < 3) { rebuildSwap(); lastFix = now; slowSince = -1; fixes++; }
