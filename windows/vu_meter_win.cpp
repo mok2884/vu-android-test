@@ -470,6 +470,9 @@ static const Rc W_CLOSE{1380,570,32,32};
 static double gScopeG = 1.0;
 static bool rtaMode = true;      // true = RTA, false = LOUDNESS の履歴
 static bool gSet = false;        // 入力の設定の窓
+// 描く回数 (入力の設定の窓で選ぶ。グラフィックが追いつかない PC では減らすと針が止まりにくくなる)
+static int gNeedleHz = 240;     // 針: 240 か 120
+static int gLayerHz = 60;       // 針以外 (リサージュ・RTA・ラウドネスなど): 60 か 30
 
 // ============================================================
 //  画面 (DXGI / Direct2D)
@@ -482,7 +485,6 @@ static IDXGIFactory2* gFac = nullptr;
 static UINT swapFlags(){ return (gTearing ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0) | DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT; }
 static ID2D1Factory* gD2 = nullptr; static ID2D1RenderTarget* gRT = nullptr; static IDWriteFactory* gDW = nullptr;
 static ID2D1BitmapRenderTarget* gLayer = nullptr;   // 針以外の全部 (1秒60回描き直す)
-static ID2D1BitmapRenderTarget* gScope = nullptr;   // スコープ (残像を残すので、消さずに描き足す)
 static ID2D1Bitmap* gFace = nullptr;                // VU の文字盤
 static ID2D1SolidColorBrush* gB = nullptr;
 static ID2D1PathGeometry* gNeedle = nullptr;
@@ -554,7 +556,7 @@ static void panel(ID2D1RenderTarget* rt, const Rc& r){ fillRR(rt, r, 12, 0x1a1a1
 
 // ===== 押せる場所の一覧 (描くたびに作り直す) =====
 enum { H_NONE, H_POWER, H_2, H_4, H_SET, H_CLOSE, H_TABRTA, H_TABLOUD, H_START, H_RESET, H_SCOPEG,
-       H_DEV, H_LR, H_LL, H_EXCL, H_C, H_F, H_CR, H_FR, H_LRM, H_LRP, H_WINDOW };
+       H_DEV, H_LR, H_LL, H_EXCL, H_C, H_F, H_CR, H_FR, H_LRM, H_LRP, H_WINDOW, H_N240, H_N120, H_L60, H_L30 };
 struct Hit { Rc r; int id; int in; };
 static std::vector<Hit> gHits;
 static int gWinHitStart = -1;    // 設定の窓の部品が gHits の何番目から始まるか (-1 = 窓なし)
@@ -620,18 +622,66 @@ static void buildFace(float wDesign){
 }
 
 // ===== スコープ (HTML 版と同じ描き方) =====
+// 見た目は前と同じ。前はグラフィック (GPU) に1024本の線を1本ずつ描かせていて、ステレオで線が長く散ると
+// グラフィックが追いつかず、針が止まる原因になっていた。今は CPU で点を打った絵を作り、1枚の絵として渡す。
+// (前と同じ規則で塗る: 線は角を立てた太さ D の帯、同じ濃さの線どうしは重ねても1回だけ塗る、色は8bitで混ぜる)
 static const int SCOPE_POINTS = 1024; static const float SCOPE_SCALE = 160, SCOPE_FADE = 0.18f, SCOPE_DOT_ALPHA = 0.5f, SCOPE_BEAM_LEN = 1.5f;
+static int gScopeP = 0;
+static std::vector<uint32_t> gScopePix;        // BGRA
+static std::vector<uint16_t> gScopeMark; static uint16_t gScopeGen = 0;
+static std::vector<int> gScopeList;
+static ID2D1Bitmap* gScopeBmp = nullptr;
 static void buildScope(float wDesign){
-    SafeRelease(gScope);
-    float px = std::max(220.f, std::round((wDesign - 2) * vS));
-    if (FAILED(gRT->CreateCompatibleRenderTarget(D2D1::SizeF(px, px), &gScope))) return;
-    gScope->SetAntialiasMode(D2D1_ANTIALIAS_MODE_ALIASED);
-    gScope->BeginDraw(); gScope->Clear(rgb(0)); gScope->EndDraw();
+    SafeRelease(gScopeBmp);
+    int P = (int)std::max(220.f, std::round((wDesign - 2) * vS));
+    gScopeP = P;
+    gScopePix.assign((size_t)P * P, 0xff000000u);
+    gScopeMark.assign((size_t)P * P, 0); gScopeGen = 0;
+    D2D1_BITMAP_PROPERTIES bp = D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
+    if (FAILED(gRT->CreateBitmap(D2D1::SizeU(P, P), gScopePix.data(), P * 4, bp, &gScopeBmp))) { gScopeBmp = nullptr; return; }
     gScopeKey = wDesign * vS;
 }
+// 中心が [a, b) に入るピクセルの番号の範囲
+static inline void pixSpan(float a, float b, int& i0, int& i1){ i0 = (int)std::ceil(a - 0.5f); i1 = (int)std::ceil(b - 0.5f) - 1; }
+static inline uint8_t mix8(int dst, float src, float a){ return (uint8_t)std::lround(std::min(255.f, std::max(0.f, src * a + dst * (1 - a)))); }
+// 線 (p→q、太さ D、端は切りっぱなし) が覆うピクセルに印をつける
+static void scopeMarkSeg(float x0, float y0, float x1, float y1, float D){
+    const int P = gScopeP;
+    float dx = x1 - x0, dy = y1 - y0, len = std::sqrt(dx*dx + dy*dy);
+    if (len <= 0) return;
+    float ux = dx / len, uy = dy / len, nx = -uy, ny = ux, h = D / 2;
+    // 4すみ
+    float cx[4] = { x0 + nx*h, x0 - nx*h, x1 - nx*h, x1 + nx*h }, cy[4] = { y0 + ny*h, y0 - ny*h, y1 - ny*h, y1 + ny*h };
+    float ymin = std::min(std::min(cy[0], cy[1]), std::min(cy[2], cy[3])), ymax = std::max(std::max(cy[0], cy[1]), std::max(cy[2], cy[3]));
+    int r0, r1; pixSpan(ymin, ymax, r0, r1);
+    r0 = std::max(r0, 0); r1 = std::min(r1, P - 1);
+    for (int r = r0; r <= r1; r++) {
+        float yc = r + 0.5f, lo = -1e30f, hi = 1e30f; bool ok = true;
+        // 条件: 0 <= (X-p)・u <= len、 |(X-p)・n| <= h   (X = (x, yc))
+        auto clip = [&](float A, float B, float mn, float mx){   // mn <= A*x + B <= mx
+            if (std::fabs(A) < 1e-7f) { if (B < mn - 1e-6f || B > mx + 1e-6f) ok = false; return; }
+            float t0 = (mn - B) / A, t1 = (mx - B) / A; if (t0 > t1) std::swap(t0, t1);
+            lo = std::max(lo, t0); hi = std::min(hi, t1);
+        };
+        clip(ux, -x0*ux + (yc - y0)*uy, 0, len);
+        clip(nx, -x0*nx + (yc - y0)*ny, -h, h);
+        if (!ok || lo > hi) continue;
+        int c0, c1; pixSpan(lo, hi + 1e-4f, c0, c1);
+        c0 = std::max(c0, 0); c1 = std::min(c1, P - 1);
+        for (int c = c0; c <= c1; c++) { int id = r * P + c; if (gScopeMark[id] != gScopeGen) { gScopeMark[id] = gScopeGen; gScopeList.push_back(id); } }
+    }
+}
+static void scopeNextGen(){ if (++gScopeGen == 0) { std::fill(gScopeMark.begin(), gScopeMark.end(), 0); gScopeGen = 1; } gScopeList.clear(); }
+static void scopePaint(unsigned col, float a){
+    float R = (col >> 16) & 255, G = (col >> 8) & 255, B = col & 255;
+    for (int id : gScopeList) {
+        uint32_t v = gScopePix[id];
+        gScopePix[id] = 0xff000000u | ((uint32_t)mix8((v >> 16) & 255, R, a) << 16) | ((uint32_t)mix8((v >> 8) & 255, G, a) << 8) | mix8(v & 255, B, a);
+    }
+}
 static void drawScope(){
-    if (!gScope) return;
-    float P = gScope->GetSize().width, RES = P / 220;
+    if (!gScopeBmp || gScopeP <= 0) return;
+    const int P = gScopeP; const float RES = P / 220.f;
     static float buf[2][SCOPE_POINTS];
     unsigned long long w = gRingW.load();
     for (int i = 0; i < SCOPE_POINTS; i++) {
@@ -639,31 +689,39 @@ static void drawScope(){
         float l = 0, r = 0; if (idx >= 0) { l = gRingL[idx & (RING-1)]; r = gRingR[idx & (RING-1)]; }
         buf[0][i] = l + r; buf[1][i] = r - l;
     }
-    gScope->BeginDraw();
-    gScope->SetTransform(D2D1::Matrix3x2F::Identity());
-    gScope->FillRectangle(D2D1::RectF(0, 0, P, P), br(0x000a00, SCOPE_FADE));
+    // 残像を薄くする (黒っぽい緑を 0.18 の濃さで全体に重ねる)
+    {
+        static uint8_t tR[256], tG[256]; static bool init = false;
+        if (!init) { for (int v = 0; v < 256; v++) { tR[v] = mix8(v, 0, SCOPE_FADE); tG[v] = (uint8_t)std::min(255L, std::lround(v * (1 - SCOPE_FADE) + 10 * SCOPE_FADE + 0.15f)); } init = true; }   // 緑の +0.15 は、前の描き方 (グラフィック) と残像の残り方をそろえるため
+        for (auto& v : gScopePix) v = 0xff000000u | ((uint32_t)tR[(v >> 16) & 255] << 16) | ((uint32_t)tG[(v >> 8) & 255] << 8) | tR[v & 255];
+    }
     float c = std::round(110 * RES), lw = std::max(1.f, std::round(RES));
-    gScope->DrawLine(D2D1::Point2F(c, 0), D2D1::Point2F(c, P), br(0x1a3a1a), lw);
-    gScope->DrawLine(D2D1::Point2F(0, c), D2D1::Point2F(P, c), br(0x1a3a1a), lw);
+    scopeNextGen(); scopeMarkSeg(c, 0, c, (float)P, lw); scopePaint(0x1a3a1a, 1);
+    scopeNextGen(); scopeMarkSeg(0, c, (float)P, c, lw); scopePaint(0x1a3a1a, 1);
     const float K = (float)gScopeG * SCOPE_SCALE * RES, C = 110 * RES;
     const float D = std::max(1.f, std::round(1 * RES)), O = ((int)D % 2) ? 0.5f : 0, beam = SCOPE_BEAM_LEN * RES;
     const float levels[6] = { 1, 0.6f, 0.36f, 0.2f, 0.1f, 0.05f };
-    ID2D1PathGeometry* g[6] = {}; ID2D1GeometrySink* s[6] = {};
-    for (int k = 0; k < 6; k++) { gD2->CreatePathGeometry(&g[k]); g[k]->Open(&s[k]); }
+    static std::vector<float> seg[6];
+    for (auto& s : seg) s.clear();
     float px = std::round(C + buf[1][0] * K) + O, py = std::round(C - buf[0][0] * K) + O;
     for (int i = 1; i < SCOPE_POINTS; i++) {
         float x = std::round(C + buf[1][i] * K) + O, y = std::round(C - buf[0][i] * K) + O;
         float len = std::hypot(x - px, y - py), b = beam / std::max(len, beam);
         int k = 0; while (k < 6 && b < levels[k] * 0.8f) k++;
         if (k < 6) {
-            if (len < 0.5f) { s[k]->BeginFigure(D2D1::Point2F(x, y - 0.5f), D2D1_FIGURE_BEGIN_HOLLOW); s[k]->AddLine(D2D1::Point2F(x, y + 0.5f)); }
-            else { s[k]->BeginFigure(D2D1::Point2F(px, py), D2D1_FIGURE_BEGIN_HOLLOW); s[k]->AddLine(D2D1::Point2F(x, y)); }
-            s[k]->EndFigure(D2D1_FIGURE_END_OPEN);
+            if (len < 0.5f) seg[k].insert(seg[k].end(), { x, y - 0.5f, x, y + 0.5f });
+            else seg[k].insert(seg[k].end(), { px, py, x, y });
         }
         px = x; py = y;
     }
-    for (int k = 0; k < 6; k++) { s[k]->Close(); s[k]->Release(); gScope->DrawGeometry(g[k], br(0x00ff66, SCOPE_DOT_ALPHA * levels[k]), D); g[k]->Release(); }
-    gScope->EndDraw();
+    for (int k = 0; k < 6; k++) {
+        if (seg[k].empty()) continue;
+        scopeNextGen();
+        for (size_t j = 0; j + 3 < seg[k].size(); j += 4) scopeMarkSeg(seg[k][j], seg[k][j+1], seg[k][j+2], seg[k][j+3], D);
+        scopePaint(0x00ff66, SCOPE_DOT_ALPHA * levels[k]);
+    }
+    D2D1_RECT_U all = D2D1::RectU(0, 0, P, P);
+    gScopeBmp->CopyFromMemory(&all, gScopePix.data(), P * 4);
 }
 
 // ===== RTA (HTML 版と同じ計算。窓の大きさに合わせて横に広げる) =====
@@ -860,7 +918,7 @@ static int monitorHz(){
     if (GetMonitorInfoW(MonitorFromWindow(gWnd, MONITOR_DEFAULTTONEAREST), &mi) && EnumDisplaySettingsW(mi.szDevice, ENUM_CURRENT_SETTINGS, &dm) && dm.dmDisplayFrequency > 1) return (int)dm.dmDisplayFrequency;
     return 60;
 }
-static double waitThreshold(){ return std::min(gHz * 1.5, 200.0); }
+static double waitThreshold(){ return std::min(gHz * 1.5, gNeedleHz * 0.83); }
 // 電池かどうか (調べるのに時間がかかることがあるので、2秒に1回だけ調べる)
 static bool onBattery(){
     static double last = -1e9; static bool bat = false;
@@ -948,7 +1006,7 @@ static void scopeBox(ID2D1RenderTarget* rt, const Rc& sc, const Rc& sg, float ti
     drawRange(rt, sg, (gScopeG - 0.1) / 4.9, false); hit(sg, H_SCOPEG);
     wchar_t t[16]; swprintf(t, 16, L"x%.1f", gScopeG); textT(rt, t, 12, false, 2, sc.r(), titleTop + 3, br(0x8a8a8a));
     fillRR(rt, sc, 4, 0x000000);
-    if (gScope) { ID2D1Bitmap* b = nullptr; gScope->GetBitmap(&b); if (b) { rt->DrawBitmap(b, D2D1::RectF(sc.x + 1, sc.y + 1, sc.r() - 1, sc.b() - 1)); b->Release(); } }
+    if (gScopeBmp) rt->DrawBitmap(gScopeBmp, D2D1::RectF(sc.x + 1, sc.y + 1, sc.r() - 1, sc.b() - 1));
     strokeRR(rt, sc, 4, 1, 0x444444);
     if (gIn[0].shift != 0) badge(rt, sc.x + 7, sc.y + 6, gIn[0].shift);
 }
@@ -1006,6 +1064,18 @@ static void settingsWindow(ID2D1RenderTarget* rt){
     rt->DrawLine(D2D1::Point2F(W_CLOSE.x + 10, W_CLOSE.y + 10), D2D1::Point2F(W_CLOSE.r() - 10, W_CLOSE.b() - 10), br(0xcccccc), 1.8f);
     rt->DrawLine(D2D1::Point2F(W_CLOSE.r() - 10, W_CLOSE.y + 10), D2D1::Point2F(W_CLOSE.x + 10, W_CLOSE.b() - 10), br(0xcccccc), 1.8f);
     hit(W_CLOSE, H_CLOSE);
+    // 描く回数
+    {
+        float y = w.y + 7, x = w.x + 290;
+        textB(rt, L"描く回数", 12, false, 0, x, y + 18, br(0xaaaaaa));
+        textB(rt, L"針", 12, false, 0, x + 70, y + 18, br(0xaaaaaa));
+        Rc a{x + 92, y, 56, 26}, b{x + 152, y, 56, 26};
+        drawSelBtn(rt, a, L"240", gNeedleHz == 240); drawSelBtn(rt, b, L"120", gNeedleHz == 120); hit(a, H_N240); hit(b, H_N120);
+        textB(rt, L"リサージュ・RTA など", 12, false, 0, x + 232, y + 18, br(0xaaaaaa));
+        Rc c{x + 370, y, 48, 26}, d{x + 422, y, 48, 26};
+        drawSelBtn(rt, c, L"60", gLayerHz == 60); drawSelBtn(rt, d, L"30", gLayerHz == 30); hit(c, H_L60); hit(d, H_L30);
+        textB(rt, L"(1秒に)  止まるときは減らす", 11, false, 0, x + 480, y + 18, br(0x8a8a8a));
+    }
     inputCard(rt, 0, w.x + 18, w.y + 54);
     inputCard(rt, 1, w.x + 18 + 482 + 16, w.y + 54);
 }
@@ -1016,7 +1086,7 @@ static void drawLayer(){
     if (!rt) return;
     const float faceW = g4 ? VU4[0].w : VU2[0].w, scopeW = g4 ? SCOPE4.w : SCOPE2.w;
     if (std::fabs(gFaceKey - faceW * vS) > 1e-3f || !gFace) buildFace(faceW);
-    if (std::fabs(gScopeKey - scopeW * vS) > 1e-3f || !gScope) buildScope(scopeW);
+    if (std::fabs(gScopeKey - scopeW * vS) > 1e-3f || !gScopeBmp) buildScope(scopeW);
     if (gPower) drawScope();
 
     double M, S, I; bool hasI, run; double tpRecent = 0, tpMax; std::vector<float> hist;
@@ -1103,8 +1173,8 @@ static void createTargets();
 static void render(){
     if (!gRT || !gLayer) return;
     static double lastLayer = 0; double now = nowMs();
-    // 針以外は1秒60回 (重いPCで30回に落とす作りは、針の動きがパタつくのでやめた)
-    const double layerGap = 1000.0 / 60;
+    // 針以外は1秒60回か30回 (入力の設定の窓で選ぶ)
+    const double layerGap = 1000.0 / gLayerHz;
     if (gLayerDirty || now - lastLayer >= layerGap * 0.85) {
         lastLayer = now; drawLayer();
         double t = nowMs() - now; gLayerMs = gLayerMs * 0.9 + t * 0.1;
@@ -1136,7 +1206,7 @@ static void render(){
     gWorkMs = gWorkMs * 0.95 + (nowMs() - now) * 0.05;
 }
 
-static void releaseTargets(){ releaseGrads(); SafeRelease(gFace); SafeRelease(gScope); SafeRelease(gLayer); SafeRelease(gB); SafeRelease(gRT); gFaceKey = gScopeKey = 0; }
+static void releaseTargets(){ releaseGrads(); SafeRelease(gFace); SafeRelease(gScopeBmp); SafeRelease(gLayer); SafeRelease(gB); SafeRelease(gRT); gFaceKey = gScopeKey = 0; }
 static void createTargets(){
     releaseTargets();
     IDXGISurface* surf = nullptr;
@@ -1273,6 +1343,10 @@ static void click(const Hit& h){
     case H_4: if (!g4) setMode4(true); break;
     case H_SET: gSet = !gSet; break;
     case H_CLOSE: gSet = false; break;
+    case H_N240: gNeedleHz = 240; break;
+    case H_N120: gNeedleHz = 120; break;
+    case H_L60: gLayerHz = 60; break;
+    case H_L30: gLayerHz = 30; break;
     case H_DEV: deviceMenu(h.in, h.r); break;
     case H_LR: in.mono = false; break;
     case H_LL: in.mono = true; break;
@@ -1391,7 +1465,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int){
             else if (now - slowSince > 3000 && now - lastFix > 10000 && fixes < 3) { rebuildSwap(); lastFix = now; slowSince = -1; fixes++; }
         }
         static LONGLONG next = 0;
-        LONGLONG step = fq.QuadPart / 240;
+        LONGLONG step = fq.QuadPart / gNeedleHz;
         LARGE_INTEGER n; QueryPerformanceCounter(&n);
         if (next == 0 || n.QuadPart - next > step * 4) next = n.QuadPart;
         next += step;
