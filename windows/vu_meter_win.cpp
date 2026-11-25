@@ -1126,7 +1126,7 @@ static void drawLayer(){
         const bool hv = slow && heavy();
         const bool wait = slow && !hv;
         wchar_t m[96];
-        swprintf(m, 96, L"%ls %.0f回/秒 (1回 %.1fms)", !gFull ? L"ウィンドウ" : gShowMode == 2 ? L"なめらか" : wait ? L"待ちあり" : hv ? L"描くのが重い" : L"待ちなし", gFps, gWorkMs);
+        swprintf(m, 96, L"%ls%ls %.0f回/秒 (1回 %.1fms)", wait ? L"※ " : L"", !gFull ? L"ウィンドウ" : gShowMode == 2 ? L"なめらか" : wait ? L"待ちあり" : hv ? L"描くのが重い" : L"待ちなし", gFps, gWorkMs);
         // 針が止まった回数 (直近1分。画面の書き換えか音の受け取りが40ms以上とぎれたとき)
         {
             int nS = 0, nA = 0; double mx = 0, now = qpcMs();
@@ -1136,11 +1136,12 @@ static void drawLayer(){
             wchar_t s2[96];
             if (nS + nA == 0) swprintf(s2, 96, L"%ls (W)   止まり なし", showModeName());
             else swprintf(s2, 96, L"%ls (W)   止まり %d回 (画面%d 音%d) 最大%.0fms", showModeName(), nS + nA, nS, nA, mx);
-            textB(rt, s2, 11, false, 2, 1398, 66, br(nS + nA ? 0xe8c430 : 0x6a6a6a));
+            textB(rt, s2, 11, false, 2, 1398, 66, br(0x6a6a6a));   // 色はつけない (目がちかちかするので)
         }
-        unsigned col = wait ? 0xe6463c : (gFull && (hv || gFps < gNeedleHz * 0.5)) ? 0xe8c430 : 0x8a8a8a;
-        textB(rt, m, 12, wait || hv, 2, 1398, 46, br(col));
-        if (onBattery()) { float mw = textWidth(m, 12, wait || hv); textB(rt, L"電池で動作中", 12, true, 2, 1398 - mw - 14, 46, br(0xec9a2d)); }
+        // 赤や黄色はやめて、いつも同じ暗さ。待ちありのときだけ頭に ※
+        unsigned col = 0x8a8a8a;
+        textB(rt, m, 12, false, 2, 1398, 46, br(col));
+        if (onBattery()) { float mw = textWidth(m, 12, false); textB(rt, L"電池で動作中", 12, false, 2, 1398 - mw - 14, 46, br(0x8a8a8a)); }
     }
 
     if (!g4) {
