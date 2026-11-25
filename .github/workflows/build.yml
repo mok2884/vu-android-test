@@ -1,6 +1,7 @@
 name: build-apk
 on:
   push:
+    branches: [main]   # windows ブランチ (Windows版の設計図) では Android を作らない
   workflow_dispatch:
 permissions:
   contents: write
