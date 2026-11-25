@@ -127,7 +127,7 @@ input[type=range].rTrim { accent-color:#5a5a5a; filter:grayscale(1) brightness(0
   <div class="panel" style="left:20px; top:20px; width:1400px; height:60px;"></div>
   <button id="btn" class="abs" style="left:42px; top:32px; width:120px; height:36px;">POWER OFF</button>
   <button id="b2" class="selbtn abs on" style="left:176px; top:34px; width:52px;">2連</button>
-  <button id="b4" class="selbtn abs" style="left:232px; top:34px; width:72px;">4連<span class="kbd">V</span></button>
+  <button id="b4" class="selbtn abs" style="left:232px; top:34px; width:72px;">4連</button>
   <button id="bSet" class="selbtn abs" style="left:312px; top:34px; width:100px;">入力の設定</button>
   <div class="abs" style="left:426px; top:35px; width:1px; height:30px; background:#333;"></div>
   <div id="sum1" class="sumRow"><span class="lab">INPUT 1</span><span class="dev" id="sum1Dev">--</span><span class="inf" id="sum1Inf">LR</span><span class="gn" id="sum1Gn">L +0.0 / R +0.0 dB</span><span class="badge" id="sum1Bd" style="display:none"></span></div>
@@ -173,15 +173,15 @@ input[type=range].rTrim { accent-color:#5a5a5a; filter:grayscale(1) brightness(0
   </div>
   <div id="anaRow">
     <button id="tabRta" class="pbtn on" style="width:110px;">RTA</button>
-    <button id="tabLoud" class="pbtn" style="width:140px;">LOUDNESS<span class="kbd">R/L</span></button>
+    <button id="tabLoud" class="pbtn" style="width:140px;">LOUDNESS</button>
     <div class="tpBox">
       <span>TP 10s</span><span class="tpNum" id="tpRecentVal">--.-</span><span>&nbsp;dBTP</span>
       <span>TP MAX</span><span class="tpNum" id="tpMaxVal">--.-</span><span>&nbsp;dBTP</span>
     </div>
     <div style="flex:1;"></div>
     <div class="lkfsBox"><span style="font-size:11px; color:#aaa; margin-bottom:2px;">INTEGRATED</span><div><span id="lkfsVal">--.-</span><span style="font-size:16px;"> LKFS</span></div></div>
-    <button id="lkfsStart" class="pbtn"><span id="startLbl">START</span><span class="kbd" id="startKbd">SPACE</span></button>
-    <button id="lkfsReset" class="pbtn" style="width:120px;">RESET<span class="kbd" id="resetKbd" style="display:none">SPACE</span></button>
+    <button id="lkfsStart" class="pbtn" style="width:92px;"><span id="startLbl">START</span></button>
+    <button id="lkfsReset" class="pbtn" style="width:120px;">RESET</button>
   </div>
   <div id="rtaWin"><canvas id="rtaCanvas" width="1350" height="332"></canvas></div>
 
@@ -444,9 +444,17 @@ function applyGains(){
     if (inGainL) inGainL.gain.value = Math.pow(10, gainLdB / 20);
     if (inGainR) inGainR.gain.value = Math.pow(10, gainRdB / 20);
 }
+// 左のスライダーを動かしたとき、R だけのスライダーは「左と同じ位置 + R だけのずれ」にする
+// (前は R の値を丸め直していたので、0.5 を超えると R の大きいほうが1つ右、細かいほうが左に動いて見えた)
+function followR(cId, fId, off, crId, frId, fallback){
+    const oc = Math.round(off), of = Math.round((off - oc) * 10) / 10;
+    const c = (parseFloat(document.getElementById(cId).value) - 20) + oc, f = parseFloat(document.getElementById(fId).value) + of;
+    if (c < -20 || c > 20 || f < -1 || f > 1) { fallback(); return; }   // はみ出すときだけ前のやり方
+    document.getElementById(crId).value = c + 20; document.getElementById(frId).value = Math.round(f * 10) / 10;
+}
 function onMainGain(){
     gainLdB = sliderDb("vuGainCoarse", "vuGainFine");
-    setRSliders(gainLdB + gainROffset);
+    followR("vuGainCoarse", "vuGainFine", gainROffset, "vuGainCoarseR", "vuGainFineR", () => setRSliders(gainLdB + gainROffset));
     gainRdB = sliderDb("vuGainCoarseR", "vuGainFineR");
     applyGains();
 }
@@ -827,8 +835,6 @@ document.querySelectorAll(".loudTgt").forEach(el => {
 // START / STOP の表示。スペースキーは、止まっているときは START、動いているときは RESET
 function updStart(){
     document.getElementById("startLbl").innerText = loudRun ? "STOP" : "START";
-    document.getElementById("startKbd").style.display = loudRun ? "none" : "";
-    document.getElementById("resetKbd").style.display = loudRun ? "" : "none";
     document.getElementById("lkfsStart").classList.toggle("on", loudRun);
 }
 document.getElementById("lkfsStart").onclick = () => {
@@ -948,7 +954,7 @@ function in2SetRSliders(db){
 }
 function in2Main(){
     in2.gainLdB = sliderDb("g2C", "g2F");
-    in2SetRSliders(in2.gainLdB + in2.gainROff);
+    followR("g2C", "g2F", in2.gainROff, "g2CR", "g2FR", () => in2SetRSliders(in2.gainLdB + in2.gainROff));
     in2.gainRdB = sliderDb("g2CR", "g2FR");
     in2Texts(); in2Apply();
 }
