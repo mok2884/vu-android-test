@@ -440,7 +440,16 @@ static void setRSliders(Input& in, double db){
     double f = std::max(-1.0, std::min(1.0, jsRound((db - c) * 10) / 10));
     in.cR = c + 20; in.fR = f;
 }
-static void onMainGain(int i){ Input& in = gIn[i]; in.gainLdB = (in.c - 20) + in.f; setRSliders(in, in.gainLdB + in.gainROff); in.gainRdB = (in.cR - 20) + in.fR; applyGains(i); }
+// 左のスライダーを動かしたとき、R だけのスライダーは「左と同じ位置 + R だけのずれ」にする
+// (前は R の値を丸め直していたので、0.5 を超えると R の大きいほうが1つ右、細かいほうが左に動いて見えた)
+static void onMainGain(int i){
+    Input& in = gIn[i]; in.gainLdB = (in.c - 20) + in.f;
+    double off = in.gainROff, oc = jsRound(off), of = jsRound((off - oc) * 10) / 10;
+    double c = (in.c - 20) + oc, f = in.f + of;
+    if (c < -20 || c > 20 || f < -1 || f > 1) setRSliders(in, in.gainLdB + off);   // はみ出すときだけ前のやり方
+    else { in.cR = c + 20; in.fR = f; }
+    in.gainRdB = (in.cR - 20) + in.fR; applyGains(i);
+}
 static void onRGain(int i){ Input& in = gIn[i]; in.gainRdB = (in.cR - 20) + in.fR; in.gainROff = in.gainRdB - in.gainLdB; applyGains(i); }
 
 // ============================================================
@@ -1128,7 +1137,7 @@ static void drawLayer(){
             else swprintf(s2, 96, L"%ls (W)   止まり %d回 (画面%d 音%d) 最大%.0fms", showModeName(), nS + nA, nS, nA, mx);
             textB(rt, s2, 11, false, 2, 1398, 66, br(nS + nA ? 0xe8c430 : 0x6a6a6a));
         }
-        unsigned col = wait ? 0xe6463c : (gFull && (hv || gFps < 120)) ? 0xe8c430 : 0x8a8a8a;
+        unsigned col = wait ? 0xe6463c : (gFull && (hv || gFps < gNeedleHz * 0.5)) ? 0xe8c430 : 0x8a8a8a;
         textB(rt, m, 12, wait || hv, 2, 1398, 46, br(col));
         if (onBattery()) { float mw = textWidth(m, 12, wait || hv); textB(rt, L"電池で動作中", 12, true, 2, 1398 - mw - 14, 46, br(0xec9a2d)); }
     }
