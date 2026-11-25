@@ -976,7 +976,7 @@ static void loudBars(ID2D1RenderTarget* rt, const Rc* tr, double M, double S, fl
 // タブ、TP、積算、START/STOP/RESET の1列。x0 = 左端、y = 上端
 static void analysisRow(ID2D1RenderTarget* rt, float x0, float y, double tpRecent, double tpMax, bool hasI, double I, bool run, float lkSize){
     Rc tR{x0, y, 110, 32}, tL{x0 + 116, y, 140, 32};
-    drawPBtn(rt, tR, L"RTA", rtaMode); drawPBtn(rt, tL, L"LOUDNESS", !rtaMode, L"R/L");
+    drawPBtn(rt, tR, L"RTA", rtaMode); drawPBtn(rt, tL, L"LOUDNESS", !rtaMode);
     hit(tR, H_TABRTA); hit(tL, H_TABLOUD);
     double lin[2] = { tpRecent, tpMax }; const wchar_t* lab[2] = { L"TP 10s", L"TP MAX" };
     for (int i = 0; i < 2; i++) {
@@ -990,9 +990,10 @@ static void analysisRow(ID2D1RenderTarget* rt, float x0, float y, double tpRecen
     }
     // スペースキーは、止まっているときは START、動いているときは RESET
     Rc rs{1276, y, 120, 32};
-    Rc st = run ? Rc{1188, y, 80, 32} : Rc{1146, y, 122, 32};
-    if (run) drawPBtn(rt, st, L"STOP", true); else drawPBtn(rt, st, L"START", false, L"SPACE");
-    drawPBtn(rt, rs, L"RESET", false, run ? L"SPACE" : nullptr);
+    // ボタンにキーは書かない (覚える)。START と STOP は同じ幅にして、数字が横に動かないように
+    Rc st{1176, y, 92, 32};
+    if (run) drawPBtn(rt, st, L"STOP", true); else drawPBtn(rt, st, L"START", false);
+    drawPBtn(rt, rs, L"RESET", false);
     hit(st, H_START); hit(rs, H_RESET);
     float right = st.x - 12;
     textB(rt, L"INTEGRATED", 11, false, 2, right, y - 1, br(0xaaaaaa));
@@ -1115,7 +1116,7 @@ static void drawLayer(){
     panel(rt, P_TOP);
     fillRR(rt, B_POWER, 4, gPower ? 0xdd0000 : 0x444444);
     btnLabel(rt, B_POWER, gPower ? L"POWER ON" : L"POWER OFF", 13, 0xffffff, nullptr); hit(B_POWER, H_POWER);
-    drawSelBtn(rt, B_2, L"2連", !g4); drawSelBtn(rt, B_4, L"4連", g4, L"V"); hit(B_2, H_2); hit(B_4, H_4);
+    drawSelBtn(rt, B_2, L"2連", !g4); drawSelBtn(rt, B_4, L"4連", g4); hit(B_2, H_2); hit(B_4, H_4);
     drawSelBtn(rt, B_SET, L"入力の設定", false, nullptr, gSet); hit(B_SET, H_SET);
     rt->FillRectangle(D2D1::RectF(426, 35, 427, 65), br(0x333333));
     if (g4) { statusLine(rt, 0, 46); statusLine(rt, 1, 64); } else statusLine(rt, 0, 55);
