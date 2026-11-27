@@ -459,19 +459,21 @@ struct Rc { float x, y, w, h; float r() const { return x + w; } float b() const 
 static const float PANEL_W = 1440, PANEL_H = 900;
 static const Rc P_TOP{20,20,1400,60};
 // 2連
-static const Rc P_MET2{20,94,1400,360}, P_BOT2{20,468,1400,412};
-static const Rc VU2[2] = { {68,202,440,228}, {540,202,440,228} };
-static const Rc SCOPE2{1012,170,260,260}, SCOPEG2{1172,151,70,16};
-static const Rc TRACK2[2] = { {1306,210,24,220}, {1350,210,24,220} };
-static const Rc RTAWIN2{44,530,1352,334};
+// 2VU (Design の案E)。ここに書くのは VU が右のときの位置。VU が左のときは左右を反対にする (L と R、M と S の順はそのまま)
+// 上の枠は「VU の段 + リサージュの足」の形、下の枠は「グラフ + VU の下にさりげなく出る操作の帯」の形
+static const float E_TOP = 94, E_TOPR = 398, E_LEGR = 500, E_LEGB = 460, E_RAISEL = 514, E_RAISET = 412, E_BODYT = 474;
+static const Rc VU2B[2] = { {603,171,340,176}, {991,171,340,176} };
+static const Rc SCOPE2B{44,124,320,320}, SCOPEG2B{262,104,70,16};
+static const Rc TRACK2B[2] = { {396,158,24,286}, {444,158,24,286} };
+static const Rc RTAWIN2{44,490,1352,374};
 // 4連
-static const Rc P_MET4{20,94,1400,226}, P_BOT4{20,334,1400,546};
+static const Rc P_MET4{20,94,1400,226}, P_BOT4{20,334,1400,378};
 static const Rc VU4[4] = { {60,152,286,148}, {360,152,286,148}, {692,152,286,148}, {992,152,286,148} };
-static const Rc SCOPE4{44,382,330,330}, SCOPEG4{234,356,70,16};
+static const Rc SCOPE4{44,378,310,310}, SCOPEG4{254,356,70,16};
 static const Rc TRACK4[2] = { {1324,172,20,128}, {1360,172,20,128} };
-static const Rc RTAWIN4{398,394,998,470};
+static const Rc RTAWIN4{378,412,1018,282};   // 2VU のグラフ (1352x374) と同じ縦横比
 // 上の帯
-static const Rc B_POWER{42,32,120,36}, B_2{176,34,52,32}, B_4{232,34,72,32}, B_SET{312,34,100,32};
+static const Rc B_POWER{42,32,120,36}, B_2{176,34,76,32}, B_4{256,34,60,32}, B_SET{324,34,100,32};
 // 入力の設定の窓 (2連でも4連でも同じ。左は開けておく)
 static const Rc W_SET{404,566,1016,310};
 static const Rc W_CLOSE{1380,570,32,32};
@@ -479,6 +481,10 @@ static const Rc W_CLOSE{1380,570,32,32};
 static double gScopeG = 1.0;
 static bool rtaMode = true;      // true = RTA, false = LOUDNESS の履歴
 static bool gSet = false;        // 入力の設定の窓
+static bool gVuLeft = false;     // 2VU のとき VU を左に置く (2VU のボタンをもう一度押すと切り替わる)
+static Rc mir(const Rc& r){ return gVuLeft ? Rc{PANEL_W - r.x - r.w, r.y, r.w, r.h} : r; }
+static Rc vu2(int i){ return gVuLeft ? mir(VU2B[1 - i]) : VU2B[i]; }
+static Rc track2(int i){ return gVuLeft ? mir(TRACK2B[1 - i]) : TRACK2B[i]; }
 // 描く回数 (入力の設定の窓で選ぶ。グラフィックが追いつかない PC では減らすと針が止まりにくくなる)
 static int gNeedleHz = 240;     // 針: 240 か 120
 static int gLayerHz = 60;       // 針以外 (リサージュ・RTA・ラウドネスなど): 60 か 30
@@ -943,8 +949,8 @@ static std::wstring dbText(double v){ wchar_t b[24]; swprintf(b, 24, L"%+.1f dB"
 // 上の帯に1つの入力のあらましを書く
 static void statusLine(ID2D1RenderTarget* rt, int i, float base){
     std::wstring s, l; getInfo(i, s, l);
-    textB(rt, i == 0 ? L"INPUT 1" : L"INPUT 2", 12, true, 0, 440, base, br(0x3ddc5a));
-    textB(rt, devName(i).c_str(), 12, false, 0, 500, base, br(0xeeeeee), 230);
+    textB(rt, i == 0 ? L"INPUT 1" : L"INPUT 2", 12, true, 0, 450, base, br(0x3ddc5a));
+    textB(rt, devName(i).c_str(), 12, false, 0, 510, base, br(0xeeeeee), 222);
     std::wstring info = s.empty() ? (gPower ? L"--" : L"OFF") : s;
     info += gIn[i].mono ? L" · LL" : L" · LR";
     textB(rt, info.c_str(), 12, false, 0, 740, base, br(0x8a8a8a), 120);
@@ -974,8 +980,9 @@ static void loudBars(ID2D1RenderTarget* rt, const Rc* tr, double M, double S, fl
 }
 
 // タブ、TP、積算、START/STOP/RESET の1列。x0 = 左端、y = 上端
-static void analysisRow(ID2D1RenderTarget* rt, float x0, float y, double tpRecent, double tpMax, bool hasI, double I, bool run, float lkSize){
-    Rc tR{x0, y, 110, 32}, tL{x0 + 116, y, 140, 32};
+// x0 = 左端、xR = 右端 (RESET の右)、y = ボタンの上端。2VU と 4VU で同じ並び・同じ大きさ
+static void analysisRow(ID2D1RenderTarget* rt, float x0, float xR, float y, double tpRecent, double tpMax, bool hasI, double I, bool run, float lkSize){
+    Rc tR{x0, y, 100, 32}, tL{x0 + 112, y, 120, 32};
     drawPBtn(rt, tR, L"RTA", rtaMode); drawPBtn(rt, tL, L"LOUDNESS", !rtaMode);
     hit(tR, H_TABRTA); hit(tL, H_TABLOUD);
     double lin[2] = { tpRecent, tpMax }; const wchar_t* lab[2] = { L"TP 10s", L"TP MAX" };
@@ -984,14 +991,14 @@ static void analysisRow(ID2D1RenderTarget* rt, float x0, float y, double tpRecen
         wchar_t s[16]; if (db < -70) wcscpy(s, L"--.-"); else swprintf(s, 16, L"%.1f", db);
         unsigned col = db > 0 ? 0xc0504d : db > -1 ? 0xc9a227 : 0xcccccc;
         float base = y + 13 + i * 16;
-        textB(rt, lab[i], 12, false, 0, x0 + 272, base, br(0x8a8a8a));
-        textB(rt, s, 12, false, 2, x0 + 366, base, br(col));
-        textB(rt, L" dBTP", 12, false, 0, x0 + 366, base, br(0x8a8a8a));
+        textB(rt, lab[i], 12, false, 0, x0 + 254, base, br(0x8a8a8a));
+        textB(rt, s, 12, false, 2, x0 + 346, base, br(col));
+        textB(rt, L" dBTP", 12, false, 0, x0 + 346, base, br(0x8a8a8a));
     }
     // スペースキーは、止まっているときは START、動いているときは RESET
-    Rc rs{1276, y, 120, 32};
+    Rc rs{xR - 100, y, 100, 32};
     // ボタンにキーは書かない (覚える)。START と STOP は同じ幅にして、数字が横に動かないように
-    Rc st{1176, y, 92, 32};
+    Rc st{xR - 200, y, 92, 32};
     if (run) drawPBtn(rt, st, L"STOP", true); else drawPBtn(rt, st, L"START", false);
     drawPBtn(rt, rs, L"RESET", false);
     hit(st, H_START); hit(rs, H_RESET);
@@ -1026,6 +1033,33 @@ static void vuBox(ID2D1RenderTarget* rt, const Rc& m){
     strokeRR(rt, m, 4, 1, 0x444444);
 }
 
+// 2VU の上下の枠 (L字の形)。VU が左のときは左右を反対に
+// 角の点を順に並べて、どの角も半径 12 で丸める (へこんだ角も同じやり方)
+static ID2D1PathGeometry* roundPoly(const std::vector<D2D1_POINT_2F>& v, float R){
+    ID2D1PathGeometry* g = nullptr; ID2D1GeometrySink* k = nullptr;
+    gD2->CreatePathGeometry(&g); g->Open(&k);
+    const int n = (int)v.size();
+    auto toward = [&](D2D1_POINT_2F a, D2D1_POINT_2F b){ float dx = b.x - a.x, dy = b.y - a.y, l = std::sqrt(dx*dx + dy*dy); return D2D1::Point2F(a.x + dx / l * R, a.y + dy / l * R); };
+    for (int i = 0; i < n; i++) {
+        D2D1_POINT_2F p = v[i], prev = v[(i + n - 1) % n], next = v[(i + 1) % n];
+        D2D1_POINT_2F in = toward(p, prev), out = toward(p, next);
+        if (i == 0) k->BeginFigure(in, D2D1_FIGURE_BEGIN_FILLED); else k->AddLine(in);
+        k->AddQuadraticBezier(D2D1::QuadraticBezierSegment(p, out));
+    }
+    k->EndFigure(D2D1_FIGURE_END_CLOSED); k->Close(); k->Release();
+    return g;
+}
+static void ePanels(ID2D1RenderTarget* rt){
+    const float L = 20, Rt = PANEL_W - 20, B = 880;
+    auto P = [](float x, float y){ return D2D1::Point2F(x, y); };
+    ID2D1PathGeometry* g[2] = {
+        roundPoly({ P(L, E_TOP), P(Rt, E_TOP), P(Rt, E_TOPR), P(E_LEGR, E_TOPR), P(E_LEGR, E_LEGB), P(L, E_LEGB) }, 12),
+        roundPoly({ P(L, E_BODYT), P(E_RAISEL, E_BODYT), P(E_RAISEL, E_RAISET), P(Rt, E_RAISET), P(Rt, B), P(L, B) }, 12) };
+    if (gVuLeft) rt->SetTransform(D2D1::Matrix3x2F::Scale(-1, 1) * D2D1::Matrix3x2F::Translation(PANEL_W, 0) * viewM());
+    for (auto* x : g) { if (!x) continue; rt->FillGeometry(x, br(0x1a1a1a)); rt->DrawGeometry(x, br(0x333333), 2); x->Release(); }
+    rt->SetTransform(viewM());
+}
+
 // 入力の設定の窓の、1つの入力のカード
 static void inputCard(ID2D1RenderTarget* rt, int i, float cx, float cy){
     Input& in = gIn[i];
@@ -1033,7 +1067,7 @@ static void inputCard(ID2D1RenderTarget* rt, int i, float cx, float cy){
     fillRR(rt, card, 8, 0x181818); strokeRR(rt, card, 8, 1, 0x3a3a3a);
     textB(rt, i == 0 ? L"INPUT 1" : L"INPUT 2", 13, true, 0, cx + 16, cy + 27, br(0x3ddc5a));
     std::wstring s, l; getInfo(i, s, l);
-    if (i == 1 && !g4) l = L"4連のときに使う";
+    if (i == 1 && !g4) l = L"4VU のときに使う";
     textB(rt, l.c_str(), 11, false, 2, cx + 466, cy + 27, br(0x8a8a8a), 360);
     textB(rt, L"機器", 12, false, 0, cx + 16, cy + 60, br(0xaaaaaa));
     Rc dd{cx + 74, cy + 40, 392, 32}; drawDropdown(rt, dd, devName(i).c_str()); hit(dd, H_DEV, i);
@@ -1094,7 +1128,7 @@ static void settingsWindow(ID2D1RenderTarget* rt){
 static void drawLayer(){
     ID2D1RenderTarget* rt = gLayer;
     if (!rt) return;
-    const float faceW = g4 ? VU4[0].w : VU2[0].w, scopeW = g4 ? SCOPE4.w : SCOPE2.w;
+    const float faceW = g4 ? VU4[0].w : VU2B[0].w, scopeW = g4 ? SCOPE4.w : SCOPE2B.w;
     if (std::fabs(gFaceKey - faceW * vS) > 1e-3f || !gFace) buildFace(faceW);
     if (std::fabs(gScopeKey - scopeW * vS) > 1e-3f || !gScopeBmp) buildScope(scopeW);
     if (gPower) drawScope();
@@ -1116,9 +1150,25 @@ static void drawLayer(){
     panel(rt, P_TOP);
     fillRR(rt, B_POWER, 4, gPower ? 0xdd0000 : 0x444444);
     btnLabel(rt, B_POWER, gPower ? L"POWER ON" : L"POWER OFF", 13, 0xffffff, nullptr); hit(B_POWER, H_POWER);
-    drawSelBtn(rt, B_2, L"2連", !g4); drawSelBtn(rt, B_4, L"4連", g4); hit(B_2, H_2); hit(B_4, H_4);
+    {
+        // 2VU のボタン: 三角で今の VU の向きを出す (▶ = VU が右、◀ = VU が左)。字体にない場合があるので三角は自分で描く
+        drawSelBtn(rt, B_2, L"", !g4);
+        unsigned col = !g4 ? 0xffffff : 0xaaaaaa;
+        float tw = textWidth(L"2VU", 13, true), aw = 7, gap = 5, x = B_2.x + (B_2.w - tw - aw - gap) / 2, cy = B_2.y + B_2.h / 2;
+        float tx = gVuLeft ? x + aw + gap : x, ax = gVuLeft ? x : x + tw + gap;
+        textB(rt, L"2VU", 13, true, 0, tx, cy + 13 * 0.3465f, br(col));
+        ID2D1PathGeometry* tri = nullptr; ID2D1GeometrySink* k = nullptr;
+        if (SUCCEEDED(gD2->CreatePathGeometry(&tri)) && SUCCEEDED(tri->Open(&k))) {
+            if (gVuLeft) { k->BeginFigure(D2D1::Point2F(ax, cy), D2D1_FIGURE_BEGIN_FILLED); k->AddLine(D2D1::Point2F(ax + aw, cy - 5)); k->AddLine(D2D1::Point2F(ax + aw, cy + 5)); }
+            else         { k->BeginFigure(D2D1::Point2F(ax + aw, cy), D2D1_FIGURE_BEGIN_FILLED); k->AddLine(D2D1::Point2F(ax, cy - 5)); k->AddLine(D2D1::Point2F(ax, cy + 5)); }
+            k->EndFigure(D2D1_FIGURE_END_CLOSED); k->Close(); k->Release();
+            rt->FillGeometry(tri, br(col));
+        }
+        SafeRelease(tri);
+        drawSelBtn(rt, B_4, L"4VU", g4); hit(B_2, H_2); hit(B_4, H_4);
+    }
     drawSelBtn(rt, B_SET, L"入力の設定", false, nullptr, gSet); hit(B_SET, H_SET);
-    rt->FillRectangle(D2D1::RectF(426, 35, 427, 65), br(0x333333));
+    rt->FillRectangle(D2D1::RectF(436, 35, 437, 65), br(0x333333));
     if (g4) { statusLine(rt, 0, 46); statusLine(rt, 1, 64); } else statusLine(rt, 0, 55);
     {
         // 待ちあり (Windows のまとめ役を通っている) は赤。描くのが重くて回数が出ないときは黄色
@@ -1145,15 +1195,17 @@ static void drawLayer(){
     }
 
     if (!g4) {
-        panel(rt, P_MET2);
-        textT(rt, L"L-VU", 16, true, 1, VU2[0].x + VU2[0].w/2, 176, br(0xeeeeee));
-        textT(rt, L"R-VU", 16, true, 1, VU2[1].x + VU2[1].w/2, 176, br(0xeeeeee));
-        vuBox(rt, VU2[0]); vuBox(rt, VU2[1]);
-        scopeBox(rt, SCOPE2, SCOPEG2, 16, 146, false);
-        textT(rt, L"LOUDNESS", 16, true, 1, 1340, 146, br(0xeeeeee));
-        loudBars(rt, TRACK2, M, S, 171, 188, 15);
-        panel(rt, P_BOT2);
-        analysisRow(rt, 44, 486, tpRecent, tpMax, hasI, I, run, 40);
+        ePanels(rt);
+        Rc v0 = vu2(0), v1 = vu2(1);
+        textT(rt, L"L-VU", 14, true, 1, v0.x + v0.w/2, 148, br(0xeeeeee));
+        textT(rt, L"R-VU", 14, true, 1, v1.x + v1.w/2, 148, br(0xeeeeee));
+        vuBox(rt, v0); vuBox(rt, v1);
+        { Rc sc = mir(SCOPE2B); scopeBox(rt, sc, Rc{sc.r() - 102, SCOPEG2B.y, SCOPEG2B.w, SCOPEG2B.h}, 14, 101, false); }
+        Rc tr[2] = { track2(0), track2(1) };
+        loudBars(rt, tr, M, S, 101, 119, 15);
+        // 操作の帯は VU の下に出た部分に。並びはいつも左から RTA・LOUDNESS・TP … RESET
+        if (!gVuLeft) analysisRow(rt, E_RAISEL + 20, PANEL_W - 40, 433, tpRecent, tpMax, hasI, I, run, 36);
+        else          analysisRow(rt, 40, PANEL_W - E_RAISEL - 20, 433, tpRecent, tpMax, hasI, I, run, 36);
         rtaWindow(rt, RTAWIN2, hist, S);
     } else {
         panel(rt, P_MET4);
@@ -1167,13 +1219,13 @@ static void drawLayer(){
         loudBars(rt, TRACK4, M, S, 136, 153, 13);
         panel(rt, P_BOT4);
         scopeBox(rt, SCOPE4, SCOPEG4, 15, 352, true);
-        analysisRow(rt, 398, 350, tpRecent, tpMax, hasI, I, run, 34);
+        analysisRow(rt, 378, 1396, 359, tpRecent, tpMax, hasI, I, run, 36);
         rtaWindow(rt, RTAWIN4, hist, S);
     }
     if (gSet) settingsWindow(rt);
 
     rt->SetTransform(D2D1::Matrix3x2F::Identity());
-    if (gHelp) textB(rt, L"SPACE ラウドネス START / RESET   V 2連/4連   R・L RTA/LOUDNESS   W 画面の出し方 (A/C)   ピンチで拡大縮小・2本指で移動   0 表示を元に戻す   F 全画面/ウィンドウ   H この表示を消す   Esc 終了",
+    if (gHelp) textB(rt, L"SPACE ラウドネス START / RESET   V 2VU/4VU   R・L RTA/LOUDNESS   W 画面の出し方 (A/C)   ピンチで拡大縮小・2本指で移動   0 表示を元に戻す   F 全画面/ウィンドウ   H この表示を消す   Esc 終了",
                      11, false, 0, 12, (float)gH - 4, br(0x666666));
     rt->EndDraw();
     gLayerDirty = false;
@@ -1195,7 +1247,8 @@ static void render(){
     ID2D1Bitmap* lb = nullptr; gLayer->GetBitmap(&lb);
     if (lb) { gRT->DrawBitmap(lb, D2D1::RectF(0, 0, (float)gW, (float)gH), 1, D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR); lb->Release(); }
     float vus[4] = { gIn[0].vuL.load(), gIn[0].vuR.load(), gIn[1].vuL.load(), gIn[1].vuR.load() };
-    const Rc* rects = g4 ? VU4 : VU2; int n = g4 ? 4 : 2;
+    Rc rects[4]; int n = g4 ? 4 : 2;
+    for (int i = 0; i < n; i++) rects[i] = g4 ? VU4[i] : vu2(i);
     for (int i = 0; i < n; i++) {
         const Rc& m = rects[i];
         // 設定の窓がかぶっているところには描かない (4連・2連とも VU には かぶらない配置だが念のため)
@@ -1350,7 +1403,7 @@ static void click(const Hit& h){
     Input& in = gIn[h.in];
     switch (h.id) {
     case H_POWER: setPower(!gPower); break;
-    case H_2: if (g4) setMode4(false); break;
+    case H_2: if (g4) setMode4(false); else gVuLeft = !gVuLeft; break;
     case H_4: if (!g4) setMode4(true); break;
     case H_SET: gSet = !gSet; break;
     case H_CLOSE: gSet = false; break;
