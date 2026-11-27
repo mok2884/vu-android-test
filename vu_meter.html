@@ -5,7 +5,8 @@
 <title>VU METER</title>
 <style>
 /* 配置は Claude の Design「VUメーター 配置案」と同じ。1440x900 の枠に、位置を決めて並べる。
-   2連 (#mainPanel.m2) と 4連 (#mainPanel.m4) で、置き場所と大きさを切り替える */
+   2VU (#mainPanel.m2) と 4VU (#mainPanel.m4) で、置き場所と大きさを切り替える。
+   2VU は案E。VU が左のとき (#mainPanel.vl) は左右を反対にする (L と R、M と S の順はそのまま) */
 body { background-color: #050505; margin: 0; height: 100vh; font-family: Arial, Helvetica, sans-serif; color: #ddd; overflow-x: hidden; }
 #mainPanel { position: relative; width: 1440px; height: 900px; transform-origin: top center; margin: 0 auto; }
 #mainPanel * { box-sizing: border-box; }
@@ -28,9 +29,9 @@ input[type=range] { margin:0; height:16px; accent-color:#0075ff; cursor:pointer;
 input[type=range].rTrim { accent-color:#5a5a5a; filter:grayscale(1) brightness(0.8); }
 
 /* 上の帯 */
-.sumRow { position:absolute; left:440px; display:flex; align-items:center; font-size:12px; color:#bbb; white-space:nowrap; }
+.sumRow { position:absolute; left:450px; display:flex; align-items:center; font-size:12px; color:#bbb; white-space:nowrap; }
 .sumRow .lab { width:60px; font-weight:bold; color:#3ddc5a; }
-.sumRow .dev { width:240px; color:#eee; overflow:hidden; text-overflow:ellipsis; }
+.sumRow .dev { width:232px; color:#eee; overflow:hidden; text-overflow:ellipsis; }
 .sumRow .inf { width:126px; color:#8a8a8a; overflow:hidden; text-overflow:ellipsis; }
 .sumRow .gn { width:144px; }
 .m2 #sum1 { top:47px; } .m4 #sum1 { top:38px; } #sum2 { top:56px; }
@@ -38,7 +39,7 @@ input[type=range].rTrim { accent-color:#5a5a5a; filter:grayscale(1) brightness(0
 #latVal { position:absolute; right:42px; top:46px; width:420px; text-align:right; font-size:11px; color:#8a8a8a; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
 /* VU の窓。中身は 280x145 で描いて、--vuK 倍にする */
-.m2 { --vuK: 1.5643; --trackH: 220px; }
+.m2 { --vuK: 1.2071; --trackH: 290px; }
 .m4 { --vuK: 1.0143; --trackH: 128px; }
 .meter { position:absolute; width:calc(280px * var(--vuK) + 2px); height:calc(145px * var(--vuK) + 2px); background-color:#fdfae1; overflow:hidden; border-radius:4px; border:1px solid #444; }
 .meterInner { position:absolute; left:0; top:0; width:280px; height:145px; transform-origin:0 0; transform:scale(var(--vuK)); }
@@ -46,22 +47,25 @@ input[type=range].rTrim { accent-color:#5a5a5a; filter:grayscale(1) brightness(0
 .needle::before { content:""; position:absolute; left:-3px; bottom:0; width:6px; height:150px; background:#111; clip-path:polygon(33% 0%, 67% 0%, 100% 100%, 0% 100%); }
 .meter canvas { position:absolute; top:0; left:0; }
 .vuLab { position:absolute; font-weight:bold; color:#eee; text-align:center; }
-.m2 .vuLab { font-size:16px; width:440px; top:176px; }
+.m2 .vuLab { font-size:14px; width:340px; top:148px; }
 .m4 .vuLab { font-size:13px; width:286px; top:133px; color:#bbb; }
-.m2 #vu1 { left:68px; top:202px; } .m2 #vu2 { left:540px; top:202px; }
+.m2 #vu1 { left:603px; top:171px; } .m2 #vu2 { left:991px; top:171px; }
+.m2.vl #vu1 { left:109px; } .m2.vl #vu2 { left:497px; }
 .m4 #vu1 { left:60px; top:152px; } .m4 #vu2 { left:360px; top:152px; } .m4 #vu3 { left:692px; top:152px; } .m4 #vu4 { left:992px; top:152px; }
-.m2 #lab1 { left:68px; } .m2 #lab2 { left:540px; }
+.m2 #lab1 { left:603px; } .m2 #lab2 { left:991px; }
+.m2.vl #lab1 { left:109px; } .m2.vl #lab2 { left:497px; }
 .m4 #lab1 { left:60px; } .m4 #lab2 { left:360px; } .m4 #lab3 { left:692px; } .m4 #lab4 { left:992px; }
 .grpLab { position:absolute; top:110px; font-size:15px; font-weight:bold; color:#eee; letter-spacing:1px; }
 .vline { position:absolute; top:124px; width:2px; height:176px; background:#333; }
 
 /* スコープ */
 #scopeBlk { position:absolute; display:flex; flex-direction:column; }
-.m2 #scopeBlk { left:1012px; top:146px; width:260px; gap:0; }
-.m4 #scopeBlk { left:44px; top:352px; width:330px; gap:6px; }
-.m2 { --scopeK: 1.1727; } .m4 { --scopeK: 1.4909; }
+.m2 #scopeBlk { left:44px; top:100px; width:320px; gap:0; }
+.m2.vl #scopeBlk { left:1076px; }
+.m4 #scopeBlk { left:44px; top:354px; width:310px; gap:0; }
+.m2 { --scopeK: 1.4455; } .m4 { --scopeK: 1.4; }
 .scopeHead { display:flex; align-items:center; gap:8px; height:24px; }
-.m2 .scopeHead .ttl { font-size:16px; } .m4 .scopeHead .ttl { font-size:15px; }
+.m2 .scopeHead .ttl { font-size:14px; } .m4 .scopeHead .ttl { font-size:14px; }
 .scopeHead .ttl { font-weight:bold; color:#eee; }
 .scope { position:relative; width:calc(220px * var(--scopeK) + 2px); height:calc(220px * var(--scopeK) + 2px); background-color:#000; border:1px solid #444; border-radius:4px; overflow:hidden; }
 .scopeInner { position:absolute; left:0; top:0; width:220px; height:220px; transform-origin:0 0; transform:scale(var(--scopeK)); }
@@ -71,11 +75,13 @@ input[type=range].rTrim { accent-color:#5a5a5a; filter:grayscale(1) brightness(0
 
 /* ラウドネスの M/S */
 #loudBlk { position:absolute; }
-.m2 #loudBlk { left:1290px; top:146px; width:100px; } .m4 #loudBlk { left:1312px; top:116px; width:80px; }
+.m2 #loudBlk { left:386px; top:101px; width:92px; } .m2.vl #loudBlk { left:962px; }
+.m4 #loudBlk { left:1312px; top:116px; width:80px; }
+.m2 #loudBlk .ttl { display:none; }
 #loudBlk .ttl { text-align:center; font-weight:bold; color:#eee; }
 .m2 #loudBlk .ttl { font-size:16px; } .m4 #loudBlk .ttl { font-size:13px; }
 .loudCols { display:flex; justify-content:center; }
-.m2 .loudCols { gap:20px; margin-top:7px; } .m4 .loudCols { gap:16px; margin-top:5px; }
+.m2 .loudCols { gap:24px; margin-top:0; } .m4 .loudCols { gap:16px; margin-top:5px; }
 .loudCol { display:flex; flex-direction:column; align-items:center; gap:3px; }
 .loudName { font-size:12px; color:#aaa; }
 .loudNum { color:#ddd; font-variant-numeric:tabular-nums; white-space:nowrap; }
@@ -84,19 +90,22 @@ input[type=range].rTrim { accent-color:#5a5a5a; filter:grayscale(1) brightness(0
 .m2 .loudTrack { width:24px; } .m4 .loudTrack { width:20px; }
 
 /* 下の段 */
-.m2 #pBot { left:20px; top:468px; width:1400px; height:412px; }
-.m4 #pBot { left:20px; top:334px; width:1400px; height:546px; }
-.m2 #pMet { left:20px; top:94px; width:1400px; height:360px; }
+.m2 #pBot, .m2 #pMet { display:none; }
+.m4 #pBot { left:20px; top:334px; width:1400px; height:378px; }
+#eShape { position:absolute; left:0; top:0; pointer-events:none; }
+.m2.vl #eShape { transform:scaleX(-1); }
 .m4 #pMet { left:20px; top:94px; width:1400px; height:226px; }
-#anaRow { position:absolute; display:flex; align-items:center; gap:6px; height:32px; }
-.m2 #anaRow { left:44px; top:486px; width:1352px; } .m4 #anaRow { left:398px; top:350px; width:998px; }
-.tpBox { display:grid; grid-template-columns:52px 44px 40px; row-gap:4px; margin-left:16px; font-size:12px; line-height:1; color:#8a8a8a; font-variant-numeric:tabular-nums; white-space:nowrap; }
+#anaRow { position:absolute; display:flex; align-items:center; gap:12px; height:32px; }
+.m2 #anaRow { left:534px; top:433px; width:866px; } .m2.vl #anaRow { left:40px; }
+.m4 #anaRow { left:378px; top:359px; width:1018px; }
+.tpBox { display:grid; grid-template-columns:52px 44px 40px; row-gap:4px; margin-left:10px; font-size:12px; line-height:1; color:#8a8a8a; font-variant-numeric:tabular-nums; white-space:nowrap; }
 .tpBox .tpNum { text-align:right; color:#ccc; }
 .lkfsBox { display:flex; flex-direction:column; align-items:flex-end; color:#3ddc5a; line-height:1; white-space:nowrap; margin-right:6px; }
 #lkfsVal { font-weight:bold; font-variant-numeric:tabular-nums; }
-.m2 #lkfsVal { font-size:40px; } .m4 #lkfsVal { font-size:34px; }
+#lkfsVal { font-size:36px; }
 #rtaWin { position:absolute; background:#050505; border:1px solid #444; }
-.m2 #rtaWin { left:44px; top:530px; width:1352px; height:334px; } .m4 #rtaWin { left:398px; top:394px; width:998px; height:470px; }
+.m2 #rtaWin { left:44px; top:490px; width:1352px; height:374px; }
+.m4 #rtaWin { left:378px; top:412px; width:1018px; height:282px; }   /* 2VU のグラフと同じ縦横比 */
 #rtaCanvas { display:block; }
 
 /* 入力の設定の窓 (2連でも4連でも同じ。左は開けておく) */
@@ -126,14 +135,19 @@ input[type=range].rTrim { accent-color:#5a5a5a; filter:grayscale(1) brightness(0
   <!-- 上の帯 -->
   <div class="panel" style="left:20px; top:20px; width:1400px; height:60px;"></div>
   <button id="btn" class="abs" style="left:42px; top:32px; width:120px; height:36px;">POWER OFF</button>
-  <button id="b2" class="selbtn abs on" style="left:176px; top:34px; width:52px;">2連</button>
-  <button id="b4" class="selbtn abs" style="left:232px; top:34px; width:72px;">4連</button>
-  <button id="bSet" class="selbtn abs" style="left:312px; top:34px; width:100px;">入力の設定</button>
-  <div class="abs" style="left:426px; top:35px; width:1px; height:30px; background:#333;"></div>
+  <button id="b2" class="selbtn abs on" style="left:176px; top:34px; width:76px;">2VU ▶</button>
+  <button id="b4" class="selbtn abs" style="left:256px; top:34px; width:60px;">4VU</button>
+  <button id="bSet" class="selbtn abs" style="left:324px; top:34px; width:100px;">入力の設定</button>
+  <div class="abs" style="left:436px; top:35px; width:1px; height:30px; background:#333;"></div>
   <div id="sum1" class="sumRow"><span class="lab">INPUT 1</span><span class="dev" id="sum1Dev">--</span><span class="inf" id="sum1Inf">LR</span><span class="gn" id="sum1Gn">L +0.0 / R +0.0 dB</span><span class="badge" id="sum1Bd" style="display:none"></span></div>
   <div id="sum2" class="sumRow only4"><span class="lab">INPUT 2</span><span class="dev" id="sum2Dev">（なし）</span><span class="inf" id="sum2Inf">LR</span><span class="gn" id="sum2Gn">L +0.0 / R +0.0 dB</span><span class="badge" id="sum2Bd" style="display:none"></span></div>
   <div id="latVal"></div>
 
+  <!-- 2VU の枠 (L字の形。上: VU の段 + リサージュの足、下: グラフ + VU の下に出る操作の帯) -->
+  <svg id="eShape" class="only2" width="1440" height="900" aria-hidden="true"><g fill="#1a1a1a" stroke="#333" stroke-width="2">
+    <path d="M32 94 H1408 Q1420 94 1420 106 V386 Q1420 398 1408 398 H512 Q500 398 500 410 V448 Q500 460 488 460 H32 Q20 460 20 448 V106 Q20 94 32 94 Z"></path>
+    <path d="M32 474 H502 Q514 474 514 462 V424 Q514 412 526 412 H1408 Q1420 412 1420 424 V868 Q1420 880 1408 880 H32 Q20 880 20 868 V486 Q20 474 32 474 Z"></path>
+  </g></svg>
   <!-- VU の段 -->
   <div class="panel" id="pMet"></div>
   <div class="grpLab only4" style="left:60px;">INPUT 1</div>
@@ -183,7 +197,7 @@ input[type=range].rTrim { accent-color:#5a5a5a; filter:grayscale(1) brightness(0
     <button id="lkfsStart" class="pbtn" style="width:92px;"><span id="startLbl">START</span></button>
     <button id="lkfsReset" class="pbtn" style="width:120px;">RESET</button>
   </div>
-  <div id="rtaWin"><canvas id="rtaCanvas" width="1350" height="332"></canvas></div>
+  <div id="rtaWin"><canvas id="rtaCanvas" width="1350" height="372"></canvas></div>
 
   <!-- 入力の設定の窓 -->
   <div id="setWin" role="dialog" aria-label="入力の設定">
@@ -200,7 +214,7 @@ input[type=range].rTrim { accent-color:#5a5a5a; filter:grayscale(1) brightness(0
         <div class="row lrRow" id="lrRow"><span class="k lrName">L/R補正</span><button class="selbtn" id="lrMinus" style="width:40px;">−</button><span class="lrValN" id="lrVal">0</span><button class="selbtn" id="lrPlus" style="width:40px;">+</button><span class="note">+ は R が遅れて届く機器用</span></div>
       </div>
       <div class="card">
-        <div class="cardHead"><b>INPUT 2</b><span id="card2Inf">4連のときに使う</span></div>
+        <div class="cardHead"><b>INPUT 2</b><span id="card2Inf">4VU のときに使う</span></div>
         <div class="row"><label class="k" for="micSelect2">機器</label><select id="micSelect2" style="flex:1; min-width:0;"><option value="">（なし）</option></select></div>
         <div class="row"><span class="k">入れ方</span><button id="mode2Stereo" class="selbtn on" style="width:44px;">LR</button><button id="mode2Mono" class="selbtn" style="width:44px;">LL</button></div>
         <div class="lv">
@@ -212,7 +226,7 @@ input[type=range].rTrim { accent-color:#5a5a5a; filter:grayscale(1) brightness(0
     </div>
   </div>
 </div>
-<div id="help">SPACE ラウドネス START / RESET　 V 2連/4連　 R・L RTA/LOUDNESS</div>
+<div id="help">SPACE ラウドネス START / RESET　 V 2VU/4VU　 R・L RTA/LOUDNESS</div>
 <script>
 // Androidアプリの中で開いたときは、音をアプリから受け取る (アプリが NativeAudio を用意する)
 const NATIVE = typeof window.NativeAudio !== "undefined";
@@ -855,13 +869,20 @@ function setMode4(on){
     document.getElementById("b2").classList.toggle("on", !on);
     document.getElementById("b4").classList.toggle("on", on);
     const cv = document.getElementById("rtaCanvas");
-    if (on) { cv.width = 996; cv.height = 468; } else { cv.width = 1350; cv.height = 332; }
+    if (on) { cv.width = 1016; cv.height = 280; } else { cv.width = 1350; cv.height = 372; }
     loudDirty = true; if (rtaMode === "loud") drawLoudHistory();
     scopeResize();
     if (on) in2Start(); else in2Stop();
     updSummary();
 }
-document.getElementById("b2").onclick = () => { if (mode4) setMode4(false); };
+// 2VU のボタン: 4VU のときは 2VU に戻す。2VU のときにもう一度押すと VU の左右が入れ替わる (▶ = VU が右、◀ = VU が左)
+let vuLeft = false;
+function setVuLeft(on){
+    vuLeft = on;
+    mainPanel.classList.toggle("vl", on);
+    document.getElementById("b2").innerText = on ? "◀ 2VU" : "2VU ▶";
+}
+document.getElementById("b2").onclick = () => { if (mode4) setMode4(false); else setVuLeft(!vuLeft); };
 document.getElementById("b4").onclick = () => { if (!mode4) setMode4(true); };
 const setWin = document.getElementById("setWin");
 function setSettings(open){
@@ -899,7 +920,7 @@ function in2Stop(){
     in2.nodes = [];
     if (in2.stream && in2.stream.getTracks) in2.stream.getTracks().forEach(t => t.stop());
     in2.stream = null; in2.gL = in2.gR = in2.dL = in2.dR = in2.anaL = in2.anaR = null; in2.trL = in2.trR = null;
-    if (!NATIVE) setText("card2Inf", mode4 ? (document.getElementById("micSelect2").value ? "" : "機器を選んでください") : "4連のときに使う");
+    if (!NATIVE) setText("card2Inf", mode4 ? (document.getElementById("micSelect2").value ? "" : "機器を選んでください") : "4VU のときに使う");
 }
 function in2Apply(){
     if (in2.gL) in2.gL.gain.value = Math.pow(10, in2.gainLdB / 20);
