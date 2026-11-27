@@ -959,8 +959,15 @@ static void statusLine(ID2D1RenderTarget* rt, int i, float base){
     if (gIn[i].shift != 0) badge(rt, 1010, base - 13, gIn[i].shift);
 }
 
+// M のバーは、上がるときはすぐ、下がるときは 1秒に LOUD_M_FALL dB より速くは落とさない (音が止まったときにガタッと消えないように)
+// 数値・INTEGRATED・履歴は計算どおりの値のまま。バーの見た目だけ
+static const double LOUD_M_FALL = 20;   // dB/秒。実機はもっとゆっくり。大きくすると速く落ちる
 static void loudBars(ID2D1RenderTarget* rt, const Rc* tr, double M, double S, float nameTop, float valTop, float valSize){
     const wchar_t* nm[2] = { L"M", L"S" }; double val[2] = { M, S };
+    static double mBar = -120, mT = 0;
+    { double now = nowMs(), dt = mT > 0 ? std::min(0.2, (now - mT) / 1000) : 0; mT = now;
+      mBar = M >= mBar ? M : std::max(M, mBar - LOUD_M_FALL * dt); }
+    double bar[2] = { mBar, S };
     ID2D1LinearGradientBrush* grad = loudGrad(rt, tr[0].b(), tr[0].y);
     for (int i = 0; i < 2; i++) {
         const Rc& t = tr[i]; float cx = t.x + t.w / 2;
@@ -968,7 +975,7 @@ static void loudBars(ID2D1RenderTarget* rt, const Rc* tr, double M, double S, fl
         wchar_t s[16]; if (val[i] < -99) wcscpy(s, L"--.-"); else swprintf(s, 16, L"%.1f", val[i]);
         textT(rt, s, valSize, false, 1, cx, valTop, br(0xdddddd));
         rt->FillRectangle(RF(t), br(0x222222));
-        double pct = std::max(0.0, std::min(1.0, (val[i] - LOUD_MIN) / (LOUD_MAX - LOUD_MIN)));
+        double pct = std::max(0.0, std::min(1.0, (bar[i] - LOUD_MIN) / (LOUD_MAX - LOUD_MIN)));
         if (pct > 0) {
             rt->SetTransform(D2D1::Matrix3x2F::Translation(t.x - tr[0].x, 0) * viewM());
             rt->FillRectangle(D2D1::RectF(tr[0].x, (float)(t.b() - pct * t.h), tr[0].r(), t.b()), grad);
