@@ -534,6 +534,7 @@ let audioCtx, stream, currentL = START_DEG, currentR = START_DEG;
 const LOUD_TARGET = -24;            // 目標 (LKFS)。バーと履歴グラフに線を引く
 const LOUD_MIN = -50;               // バーと履歴グラフの下端 (LKFS)
 const LOUD_MAX = -10;               // バーと履歴グラフの上端 (LKFS)
+const LOUD_M_FALL = 20;             // M のバーが下がる速さの上限 (dB/秒)。実機はもっとゆっくり。大きくすると速く落ちる
 const LOUD_BAR_SEC = 3;              // 履歴グラフのバー1本の秒数
 const LOUD_HIST_MIN = 12;            // 履歴グラフ全体の長さ (分)
 const LOUD_HIST_BARS = LOUD_HIST_MIN * 60 / LOUD_BAR_SEC;   // バーの本数
@@ -1525,7 +1526,15 @@ const loudFmt = v => v < -99 ? "--.-" : v.toFixed(1);
 
 const barM = document.getElementById("barM");
 const barS = document.getElementById("barS");
-barM.style.height = loudPct(loudM) + "%";
+// M のバーは、上がるときはすぐ、下がるときは 1秒に LOUD_M_FALL dB より速くは落とさない (音が止まったときにガタッと消えないように)
+// 数値・INTEGRATED・履歴は計算どおりの値のまま。バーの見た目だけ
+{
+    const now = performance.now(), dt = Math.min(0.2, (now - (window.mBarT || now)) / 1000);
+    window.mBarT = now;
+    if (window.mBar === undefined || loudM >= window.mBar) window.mBar = loudM;
+    else window.mBar = Math.max(loudM, window.mBar - LOUD_M_FALL * dt);
+}
+barM.style.height = loudPct(window.mBar) + "%";
 barS.style.height = loudPct(loudS) + "%";
 
 setText("lkfsVal", loudI === null ? "--.-" : loudI.toFixed(1));
